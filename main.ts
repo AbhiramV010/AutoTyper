@@ -1,25 +1,50 @@
 'use strict';
 
-const { app, BrowserWindow, ipcMain, globalShortcut, shell } = require('electron');
-const { spawn } = require('node:child_process');
-const fs = require('node:fs');
-const path = require('node:path');
-const os = require('node:os');
-const crypto = require('node:crypto');
+import { app, BrowserWindow, ipcMain, globalShortcut, shell } from 'electron';
+import { spawn, ChildProcess } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import * as os from 'node:os';
+import * as crypto from 'node:crypto';
 
 const IS_WINDOWS = process.platform === 'win32';
 
-/** @type {BrowserWindow | null} */
-let win = null;
-/** @type {import('node:child_process').ChildProcess | null} */
-let typer = null;
-/** Temp files backing the current run. */
-let runFiles = null;
-let registeredHotkeys = { start: null, stop: null };
+interface Settings {
+  text: string;
+  speedMode: 'wpm' | 'delay';
+  wpm: number;
+  delayMs: number;
+  jitterPct: number;
+  startDelaySec: number;
+  lineDelayMs: number;
+  repeat: number;
+  repeatDelayMs: number;
+  minimizeOnStart: boolean;
+  alwaysOnTop: boolean;
+  startHotkey: string;
+  stopHotkey: string;
+}
+
+type StartOptions = Partial<Settings>;
+
+interface RunFiles {
+  text: string;
+  stop: string;
+}
+
+interface HotkeyResult {
+  start: string | null;
+  stop: string | null;
+}
+
+let win: BrowserWindow | null = null;
+let typer: ChildProcess | null = null;
+let runFiles: RunFiles | null = null;
+let registeredHotkeys: HotkeyResult = { start: null, stop: null };
 
 const settingsPath = () => path.join(app.getPath('userData'), 'settings.json');
 
-const DEFAULT_SETTINGS = {
+const DEFAULT_SETTINGS: Settings = {
   text: '',
   speedMode: 'wpm',
   wpm: 240,
@@ -35,7 +60,7 @@ const DEFAULT_SETTINGS = {
   stopHotkey: 'F7',
 };
 
-function loadSettings() {
+function loadSettings(): Settings {
   try {
     const raw = JSON.parse(fs.readFileSync(settingsPath(), 'utf8'));
     return { ...DEFAULT_SETTINGS, ...raw };
@@ -44,16 +69,16 @@ function loadSettings() {
   }
 }
 
-function saveSettings(settings) {
+function saveSettings(settings: Settings): void {
   try {
     fs.mkdirSync(path.dirname(settingsPath()), { recursive: true });
     fs.writeFileSync(settingsPath(), JSON.stringify(settings, null, 2), 'utf8');
   } catch (err) {
-    console.error('Could not save settings:', err.message);
+    console.error('Could not save settings:', (err as Error).message);
   }
 }
 
-function send(channel, payload) {
+function send(channel: string, payload?: unknown): void {
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
 }
 
@@ -61,7 +86,7 @@ function send(channel, payload) {
  * The engine script has to live on the real filesystem: once the app is packaged
  * its own files sit inside an asar archive that powershell.exe cannot read.
  */
-function engineScriptPath() {
+function engineScriptPath(): string {
   const source = path.join(__dirname, 'src', 'typer.ps1');
   const target = path.join(os.tmpdir(), `autotyper-engine-${app.getVersion()}.ps1`);
   const script = fs.readFileSync(source);
@@ -75,7 +100,7 @@ function engineScriptPath() {
   return target;
 }
 
-function cleanupRunFiles() {
+function cleanupRunFiles(): void {
   if (!runFiles) return;
   for (const file of [runFiles.text, runFiles.stop]) {
     try {
@@ -88,7 +113,7 @@ function cleanupRunFiles() {
 }
 
 /** Delay between keystrokes, in milliseconds, derived from the UI settings. */
-function delayForOptions(options) {
+function delayForOptions(options: StartOptions): number {
   if (options.speedMode === 'wpm') {
     const wpm = Math.max(1, Number(options.wpm) || DEFAULT_SETTINGS.wpm);
     // Standard convention: one "word" is five characters.
@@ -97,7 +122,7 @@ function delayForOptions(options) {
   return Math.max(0, Number(options.delayMs) || 0);
 }
 
-function startTyping(options) {
+function startTyping(options: StartOptions): { ok: boolean; error?: string } {
   if (typer) return { ok: false, error: 'Already typing.' };
   if (!IS_WINDOWS) {
     return { ok: false, error: 'The typing engine currently supports Windows only.' };
@@ -116,7 +141,7 @@ function startTyping(options) {
     fs.writeFileSync(runFiles.text, text, 'utf8');
   } catch (err) {
     cleanupRunFiles();
-    return { ok: false, error: `Could not stage the text: ${err.message}` };
+    return { ok: false, error: `Could not stage the text: ${(err as Error).message}` };
   }
 
   const args = [
@@ -138,17 +163,17 @@ function startTyping(options) {
     typer = spawn('powershell.exe', args, { windowsHide: true });
   } catch (err) {
     cleanupRunFiles();
-    return { ok: false, error: `Could not start the typing engine: ${err.message}` };
+    return { ok: false, error: `Could not start the typing engine: ${(err as Error).message}` };
   }
 
   if (options.minimizeOnStart && win && !win.isDestroyed()) win.minimize();
 
   let stderr = '';
-  let engineError = null;
+  let engineError: string | null = null;
   let buffer = '';
 
-  typer.stdout.setEncoding('utf8');
-  typer.stdout.on('data', (chunk) => {
+  typer.stdout!.setEncoding('utf8');
+  typer.stdout!.on('data', (chunk: string) => {
     buffer += chunk;
     const lines = buffer.split('\n');
     buffer = lines.pop() ?? '';
@@ -165,8 +190,8 @@ function startTyping(options) {
     }
   });
 
-  typer.stderr.setEncoding('utf8');
-  typer.stderr.on('data', (chunk) => {
+  typer.stderr!.setEncoding('utf8');
+  typer.stderr!.on('data', (chunk: string) => {
     stderr += chunk;
   });
 
@@ -185,7 +210,7 @@ function startTyping(options) {
   return { ok: true };
 }
 
-function stopTyping() {
+function stopTyping(): { ok: boolean } {
   if (!typer) return { ok: false };
   // The flag lets the engine finish the keystroke it is on and exit cleanly;
   // killing the process is the fallback if it is wedged somewhere.
@@ -201,11 +226,11 @@ function stopTyping() {
   return { ok: true };
 }
 
-function registerHotkeys(startAccelerator, stopAccelerator) {
+function registerHotkeys(startAccelerator: string | null, stopAccelerator: string | null): HotkeyResult {
   globalShortcut.unregisterAll();
   registeredHotkeys = { start: null, stop: null };
 
-  const tryRegister = (accelerator, handler) => {
+  const tryRegister = (accelerator: string | null, handler: () => void): string | null => {
     if (!accelerator) return null;
     try {
       return globalShortcut.register(accelerator, handler) ? accelerator : null;
@@ -214,7 +239,7 @@ function registerHotkeys(startAccelerator, stopAccelerator) {
     }
   };
 
-  const result = { start: null, stop: null };
+  const result: HotkeyResult = { start: null, stop: null };
   result.start = tryRegister(startAccelerator, () => send('hotkey:toggle'));
   if (stopAccelerator && stopAccelerator !== startAccelerator) {
     result.stop = tryRegister(stopAccelerator, () => {
@@ -226,7 +251,7 @@ function registerHotkeys(startAccelerator, stopAccelerator) {
   return result;
 }
 
-function createWindow() {
+function createWindow(): void {
   const settings = loadSettings();
 
   win = new BrowserWindow({
@@ -236,6 +261,7 @@ function createWindow() {
     minHeight: 620,
     backgroundColor: '#14161c',
     title: 'AutoTyper',
+    icon: path.join(__dirname, 'build', 'icon.ico'),
     show: false,
     alwaysOnTop: Boolean(settings.alwaysOnTop),
     autoHideMenuBar: true,
@@ -247,7 +273,7 @@ function createWindow() {
   });
 
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
-  win.once('ready-to-show', () => win.show());
+  win.once('ready-to-show', () => win!.show());
 
   win.webContents.setWindowOpenHandler(({ url }) => {
     shell.openExternal(url);
@@ -261,15 +287,17 @@ function createWindow() {
 
 app.whenReady().then(() => {
   ipcMain.handle('settings:load', () => loadSettings());
-  ipcMain.handle('settings:save', (_event, settings) => {
+  ipcMain.handle('settings:save', (_event, settings: Settings) => {
     saveSettings(settings);
     return true;
   });
-  ipcMain.handle('typing:start', (_event, options) => startTyping(options));
+  ipcMain.handle('typing:start', (_event, options: StartOptions) => startTyping(options));
   ipcMain.handle('typing:stop', () => stopTyping());
   ipcMain.handle('typing:isRunning', () => Boolean(typer));
-  ipcMain.handle('hotkeys:register', (_event, { start, stop }) => registerHotkeys(start, stop));
-  ipcMain.handle('window:setAlwaysOnTop', (_event, value) => {
+  ipcMain.handle('hotkeys:register', (_event, { start, stop }: { start: string | null; stop: string | null }) =>
+    registerHotkeys(start, stop),
+  );
+  ipcMain.handle('window:setAlwaysOnTop', (_event, value: boolean) => {
     if (win && !win.isDestroyed()) win.setAlwaysOnTop(Boolean(value));
     return Boolean(value);
   });

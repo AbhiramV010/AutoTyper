@@ -2,3 +2,11 @@ node_modules/
 dist/
 *.log
 .claude/
+
+# Compiled from .ts sources (run `npm run build`)
+/main.js
+/main.js.map
+/preload.js
+/preload.js.map
+/renderer/renderer.js
+/renderer/renderer.js.map

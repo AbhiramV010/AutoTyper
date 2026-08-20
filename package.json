@@ -4,21 +4,44 @@
   "description": "Desktop autotyper: types text into any focused window at a configurable speed, with global hotkeys.",
   "main": "main.js",
   "scripts": {
-    "start": "electron .",
-    "dist": "npx --yes electron-builder --win"
+    "build": "tsc -p tsconfig.json && tsc -p tsconfig.renderer.json",
+    "start": "npm run build && electron .",
+    "dist": "npm run build && npx --yes electron-builder --win"
   },
-  "keywords": ["autotyper", "electron", "typing", "automation"],
+  "keywords": [
+    "autotyper",
+    "electron",
+    "typing",
+    "automation"
+  ],
   "license": "MIT",
   "devDependencies": {
-    "electron": "^43.0.0"
+    "@types/node": "^26.2.0",
+    "electron": "^43.0.0",
+    "typescript": "^7.0.2"
   },
   "build": {
     "appId": "com.autotyper.app",
     "productName": "AutoTyper",
-    "files": ["main.js", "preload.js", "src/**", "renderer/**"],
-    "extraResources": ["src/typer.ps1"],
+    "files": [
+      "main.js",
+      "preload.js",
+      "src/**",
+      "renderer/**",
+      "build/icon.ico",
+      "!renderer/*.ts",
+      "!**/*.map"
+    ],
+    "extraResources": [
+      "src/typer.ps1"
+    ],
+    "icon": "build/icon.ico",
     "win": {
-      "target": ["nsis", "portable"]
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "build/icon.ico"
     }
   }
 }
