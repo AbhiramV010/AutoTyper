@@ -1,0 +1,24 @@
+{
+  "name": "autotyper",
+  "version": "1.0.0",
+  "description": "Desktop autotyper: types text into any focused window at a configurable speed, with global hotkeys.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "npx --yes electron-builder --win"
+  },
+  "keywords": ["autotyper", "electron", "typing", "automation"],
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^43.0.0"
+  },
+  "build": {
+    "appId": "com.autotyper.app",
+    "productName": "AutoTyper",
+    "files": ["main.js", "preload.js", "src/**", "renderer/**"],
+    "extraResources": ["src/typer.ps1"],
+    "win": {
+      "target": ["nsis", "portable"]
+    }
+  }
+}

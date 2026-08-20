@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self' data:;"
+    />
+    <title>AutoTyper</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header class="titlebar">
+      <div>
+        <h1>AutoTyper</h1>
+        <p class="subtitle">Types your text into whatever window is focused.</p>
+      </div>
+      <div class="status" id="status" data-state="idle">
+        <span class="dot"></span>
+        <span id="statusText">Idle</span>
+      </div>
+    </header>
+
+    <main>
+      <section class="card">
+        <div class="card-head">
+          <label for="text">Text to type</label>
+          <span class="muted" id="charCount">0 characters</span>
+        </div>
+        <textarea
+          id="text"
+          spellcheck="false"
+          placeholder="Type or paste the text you want played back as keystrokes..."
+        ></textarea>
+      </section>
+
+      <section class="card">
+        <div class="card-head"><label>Speed</label></div>
+
+        <div class="segmented" role="radiogroup" aria-label="Speed mode">
+          <button type="button" class="seg active" data-mode="wpm" role="radio" aria-checked="true">
+            Words per minute
+          </button>
+          <button type="button" class="seg" data-mode="delay" role="radio" aria-checked="false">
+            Delay per keystroke
+          </button>
+        </div>
+
+        <div class="row" id="wpmRow">
+          <label for="wpm">Speed</label>
+          <input type="range" id="wpmRange" min="20" max="1200" step="10" />
+          <input type="number" id="wpm" min="1" max="20000" step="10" />
+          <span class="unit">WPM</span>
+        </div>
+
+        <div class="row hidden" id="delayRow">
+          <label for="delayMs">Delay</label>
+          <input type="range" id="delayRange" min="0" max="500" step="1" />
+          <input type="number" id="delayMs" min="0" max="60000" step="1" />
+          <span class="unit">ms / key</span>
+        </div>
+
+        <div class="row">
+          <label for="jitterPct">Humanize</label>
+          <input type="range" id="jitterRange" min="0" max="90" step="5" />
+          <input type="number" id="jitterPct" min="0" max="90" step="5" />
+          <span class="unit">% jitter</span>
+        </div>
+
+        <p class="hint" id="estimate">&nbsp;</p>
+      </section>
+
+      <section class="card">
+        <div class="card-head"><label>Timing</label></div>
+        <div class="grid">
+          <div class="field">
+            <label for="startDelaySec">Countdown before typing</label>
+            <div class="input-unit">
+              <input type="number" id="startDelaySec" min="0" max="60" step="1" />
+              <span class="unit">sec</span>
+            </div>
+            <span class="hint">Time to click into the target window.</span>
+          </div>
+          <div class="field">
+            <label for="lineDelayMs">Extra pause per line</label>
+            <div class="input-unit">
+              <input type="number" id="lineDelayMs" min="0" max="60000" step="50" />
+              <span class="unit">ms</span>
+            </div>
+            <span class="hint">Added after each Enter keystroke.</span>
+          </div>
+          <div class="field">
+            <label for="repeat">Repeat</label>
+            <div class="input-unit">
+              <input type="number" id="repeat" min="1" max="10000" step="1" />
+              <span class="unit">times</span>
+            </div>
+            <span class="hint">How many passes over the text.</span>
+          </div>
+          <div class="field">
+            <label for="repeatDelayMs">Pause between repeats</label>
+            <div class="input-unit">
+              <input type="number" id="repeatDelayMs" min="0" max="600000" step="100" />
+              <span class="unit">ms</span>
+            </div>
+            <span class="hint">Ignored when repeating once.</span>
+          </div>
+        </div>
+      </section>
+
+      <section class="card">
+        <div class="card-head"><label>Hotkeys &amp; window</label></div>
+        <div class="grid">
+          <div class="field">
+            <label for="startHotkey">Start / stop hotkey</label>
+            <input type="text" id="startHotkey" class="hotkey" readonly placeholder="Click, then press keys" />
+            <span class="hint" id="startHotkeyHint">Works even when AutoTyper is not focused.</span>
+          </div>
+          <div class="field">
+            <label for="stopHotkey">Emergency stop hotkey</label>
+            <input type="text" id="stopHotkey" class="hotkey" readonly placeholder="Click, then press keys" />
+            <span class="hint" id="stopHotkeyHint">Stops typing immediately.</span>
+          </div>
+        </div>
+        <div class="checks">
+          <label class="check">
+            <input type="checkbox" id="minimizeOnStart" />
+            <span>Minimize AutoTyper when typing starts</span>
+          </label>
+          <label class="check">
+            <input type="checkbox" id="alwaysOnTop" />
+            <span>Keep AutoTyper on top of other windows</span>
+          </label>
+        </div>
+      </section>
+    </main>
+
+    <footer class="controls">
+      <div class="progress">
+        <div class="bar"><div class="fill" id="progressFill"></div></div>
+        <span class="muted" id="progressText">Ready</span>
+      </div>
+      <button type="button" id="startBtn" class="primary">Start typing</button>
+    </footer>
+
+    <div class="overlay hidden" id="overlay">
+      <div class="overlay-inner">
+        <div class="count" id="countdown">3</div>
+        <p>Click into the window you want to type in.</p>
+        <button type="button" id="cancelBtn" class="ghost">Cancel</button>
+      </div>
+    </div>
+
+    <div class="toast hidden" id="toast"></div>
+
+    <script src="renderer.js"></script>
+  </body>
+</html>
