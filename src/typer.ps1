@@ -125,12 +125,6 @@ public static class AutoTyperNative
     {
         Send(new INPUT[] { VirtualKeyInput(vk, false), VirtualKeyInput(vk, true) });
     }
-
-    // Half-presses, so a modelled hold duration can elapse between them.
-    public static void CharDown(char c) { Send(new INPUT[] { UnicodeInput(c, false) }); }
-    public static void CharUp(char c) { Send(new INPUT[] { UnicodeInput(c, true) }); }
-    public static void KeyDown(ushort vk) { Send(new INPUT[] { VirtualKeyInput(vk, false) }); }
-    public static void KeyUp(ushort vk) { Send(new INPUT[] { VirtualKeyInput(vk, true) }); }
 }
 "@
 
@@ -161,10 +155,15 @@ function Wait-Precise([double]$ms) {
 }
 
 # Replays a schedule sampled from the typing model: one step per line, as
-#   delayUs,holdUs,kind,value
+#   delayUs,kind,value
 # where kind 0 is a Unicode character (value is its code point) and kind 1 is a
 # virtual key such as Enter, Tab or Backspace. Repeats and line delays are
 # already baked in, so this plays straight through.
+#
+# Every key is pressed and released in a single SendInput batch. Holding a key
+# down for a modelled duration instead was tried and is unusable: once a hold
+# passes the system's key-repeat delay Windows repeats the key, which duplicates
+# characters and, far worse, makes a single backspace eat several characters.
 function Invoke-Schedule([string]$path) {
   $lines = [System.IO.File]::ReadAllLines($path)
 
@@ -172,7 +171,6 @@ function Invoke-Schedule([string]$path) {
   # steps the allocation cost of one object per keystroke is noticeable.
   $count = $lines.Length
   $delayMs = New-Object 'double[]' $count
-  $holdMs = New-Object 'double[]' $count
   $kind = New-Object 'int[]' $count
   $value = New-Object 'int[]' $count
 
@@ -181,11 +179,10 @@ function Invoke-Schedule([string]$path) {
   foreach ($line in $lines) {
     if ($line.Length -eq 0) { continue }
     $parts = $line.Split(',')
-    if ($parts.Length -lt 4) { continue }
+    if ($parts.Length -lt 3) { continue }
     $delayMs[$steps] = [int]::Parse($parts[0]) / 1000.0
-    $holdMs[$steps] = [int]::Parse($parts[1]) / 1000.0
-    $kind[$steps] = [int]::Parse($parts[2])
-    $value[$steps] = [int]::Parse($parts[3])
+    $kind[$steps] = [int]::Parse($parts[1])
+    $value[$steps] = [int]::Parse($parts[2])
     if ($kind[$steps] -eq 1 -and $value[$steps] -eq 8) { $total-- } else { $total++ }
     $steps++
   }
@@ -198,24 +195,18 @@ function Invoke-Schedule([string]$path) {
     if (($i -band 7) -eq 0 -and (Test-Stopped)) { return }
 
     if ($DryRun) {
-      Emit ("#T {0} {1} {2} {3}" -f $kind[$i], $value[$i], [int]$delayMs[$i], [int]$holdMs[$i])
+      Emit ("#T {0} {1} {2}" -f $kind[$i], $value[$i], [int]$delayMs[$i])
       if ($kind[$i] -eq 1 -and $value[$i] -eq 8) { $typed-- } else { $typed++ }
       continue
     }
 
     Wait-Precise $delayMs[$i]
-    $hold = $holdMs[$i]
 
     if ($kind[$i] -eq 1) {
-      $vk = [uint16]$value[$i]
-      [AutoTyperNative]::KeyDown($vk)
-      Wait-Precise $hold
-      [AutoTyperNative]::KeyUp($vk)
+      [AutoTyperNative]::SendKey([uint16]$value[$i])
       if ($value[$i] -eq 8) { $typed-- } else { $typed++ }
     }
     elseif ($value[$i] -gt 0xFFFF) {
-      # Astral characters go as a surrogate pair in one batch, so there is no
-      # meaningful hold to apply.
       $offset = $value[$i] - 0x10000
       $high = [char](0xD800 + ($offset -shr 10))
       $low = [char](0xDC00 + ($offset -band 0x3FF))
@@ -223,10 +214,7 @@ function Invoke-Schedule([string]$path) {
       $typed++
     }
     else {
-      $c = [char]$value[$i]
-      [AutoTyperNative]::CharDown($c)
-      Wait-Precise $hold
-      [AutoTyperNative]::CharUp($c)
+      [AutoTyperNative]::SendChar([char]$value[$i])
       $typed++
     }
 

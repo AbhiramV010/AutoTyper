@@ -17,8 +17,6 @@ export interface Keystroke {
   ch: string;
   /** Wait before this keystroke, in microseconds. */
   delayUs: number;
-  /** How long the key stays down, in microseconds. */
-  holdUs: number;
 }
 
 export interface SampleOptions {
@@ -314,14 +312,14 @@ export function sampleSchedule(model: TypingModel, options: SampleOptions): Keys
     let delayMs = model.fitted.medianIkiMs * ratio;
     if (previousChar === '\n' && options.lineDelayMs) delayMs += options.lineDelayMs;
 
-    const holdClass = key.kind === 'backspace' ? 'punct' : charClass(key.ch);
-    const holdMs = sampleLogNormal(model.holds[holdClass] ?? model.holds.lower ?? model.global, random);
-
+    // The model also carries fitted key hold durations, but they are not emitted:
+    // holding a key long enough to be realistic trips the system key-repeat, which
+    // duplicates characters and makes one backspace delete several. Intervals are
+    // press-to-press anyway, so the timing is unaffected by leaving holds out.
     schedule.push({
       kind: key.kind,
       ch: key.ch,
       delayUs: Math.max(0, Math.round(delayMs * 1000)),
-      holdUs: Math.max(1000, Math.round(holdMs * 1000)),
     });
 
     if (key.kind === 'char') previousChar = key.ch;
@@ -347,13 +345,5 @@ function rescaleToWpm(schedule: Keystroke[], characters: number, wpm: number): v
   const scale = target / total;
   for (const key of schedule) {
     key.delayUs = Math.max(0, Math.round(key.delayUs * scale));
-    key.holdUs = Math.max(1000, Math.round(key.holdUs * scale));
-  }
-
-  // A key must be back up before the next one goes down. The gap that matters is
-  // the interval preceding the *following* keystroke, not this one's own.
-  for (let i = 0; i < schedule.length; i++) {
-    const gapUs = i + 1 < schedule.length ? schedule[i + 1].delayUs : schedule[i].delayUs;
-    if (gapUs > 0) schedule[i].holdUs = Math.min(schedule[i].holdUs, Math.max(1000, Math.round(gapUs * 0.7)));
   }
 }

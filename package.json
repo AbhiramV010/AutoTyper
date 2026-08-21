@@ -12,7 +12,8 @@
     "dataset:fetch": "npm run tools:build && node .tools-build/tools/fetch-dataset.js",
     "model:train": "npm run tools:build && node .tools-build/tools/train-model.js",
     "model:verify": "npm run tools:build && node .tools-build/tools/verify-model.js",
-    "engine:verify": "npm run tools:build && node .tools-build/tools/verify-engine.js"
+    "engine:verify": "npm run tools:build && node .tools-build/tools/verify-engine.js",
+    "live:verify": "npm run tools:build && node .tools-build/tools/verify-live.js"
   },
   "keywords": [
     "autotyper",

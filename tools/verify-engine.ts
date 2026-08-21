@@ -50,7 +50,7 @@ function serialize(schedule: Keystroke[]): string {
       } else {
         value = key.ch.codePointAt(0) ?? 32;
       }
-      return key.delayUs + ',' + key.holdUs + ',' + kind + ',' + value;
+      return key.delayUs + ',' + kind + ',' + value;
     })
     .join('\n');
 }

@@ -200,7 +200,7 @@ function buildSchedule(options: StartOptions): Keystroke[] {
   return keystrokes;
 }
 
-/** One step per line: delayUs,holdUs,kind,value. See Invoke-Schedule in typer.ps1. */
+/** One step per line: delayUs,kind,value. See Invoke-Schedule in typer.ps1. */
 function serializeSchedule(schedule: Keystroke[]): string {
   const lines: string[] = [];
   for (const keystroke of schedule) {
@@ -218,7 +218,7 @@ function serializeSchedule(schedule: Keystroke[]): string {
     } else {
       value = keystroke.ch.codePointAt(0) ?? 32;
     }
-    lines.push(keystroke.delayUs + ',' + keystroke.holdUs + ',' + kind + ',' + value);
+    lines.push(keystroke.delayUs + ',' + kind + ',' + value);
   }
   return lines.join('\n');
 }

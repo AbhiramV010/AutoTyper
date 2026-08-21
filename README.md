@@ -74,8 +74,11 @@ What the model captures:
   Pairs with too little data back off to a character-class table (`lower>upper` is 2.99×,
   which is the cost of the shift key falling out of the data on its own), then to a global
   distribution.
-- **Hold durations.** Keys are held down about 104 ms, so each keystroke is a real press
-  and release rather than an instant blip.
+- **Hold durations** are fitted (about 104 ms) and kept in the model file, but deliberately
+  *not* replayed. Holding a key that long trips the Windows key-repeat delay, which
+  duplicates characters and makes a single backspace eat several of them. Every key is
+  pressed and released in one `SendInput` batch instead. Intervals are press-to-press, so
+  the timing is unaffected.
 - **Spread, but no drift.** Autocorrelation of the log interval turned out to be flat from
   lag 1 to lag 10 (~0.29) rather than decaying, which means there is no gradual speeding up
   or slowing down within a run to model — just a fixed pace per run plus variation that is

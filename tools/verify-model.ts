@@ -119,18 +119,6 @@ function main(): void {
     check(wpm + ' wpm', Math.abs(realized - wpm) < 0.5, '-> ' + realized.toFixed(2) + ' wpm');
   }
 
-  console.log('\nNo keystroke overlaps the next one:');
-  {
-    let ok = true;
-    for (let seed = 0; seed < 200; seed++) {
-      const schedule = sampleSchedule(model, { text: SAMPLES[3], wpm: 240, seed, errorRate: 0.2 });
-      for (let i = 0; i < schedule.length - 1; i++) {
-        if (schedule[i].holdUs > schedule[i + 1].delayUs && schedule[i + 1].delayUs > 0) ok = false;
-      }
-    }
-    check('hold fits inside the following interval', ok);
-  }
-
   console.log('\nErrors appear at roughly the fitted rate:');
   {
     const text = SAMPLES[0];
