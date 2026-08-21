@@ -15,12 +15,18 @@
 param(
   [Parameter(Mandatory = $true)][string]$TextFile,
   [string]$StopFile = '',
+  # When given, timings come from this pre-sampled schedule instead of the flat
+  # delay below. See src/model/sampler.ts for how it is produced.
+  [string]$ScheduleFile = '',
   [int]$DelayUs = 40000,
   [int]$JitterPct = 0,
   [int]$StartDelayMs = 3000,
   [int]$Repeat = 1,
   [int]$LineDelayMs = 0,
-  [int]$RepeatDelayMs = 500
+  [int]$RepeatDelayMs = 500,
+  # Reports what would be typed instead of sending it, for testing the engine
+  # without taking over the keyboard. Waits are skipped so a run finishes fast.
+  [switch]$DryRun
 )
 
 $ErrorActionPreference = 'Stop'
@@ -119,6 +125,12 @@ public static class AutoTyperNative
     {
         Send(new INPUT[] { VirtualKeyInput(vk, false), VirtualKeyInput(vk, true) });
     }
+
+    // Half-presses, so a modelled hold duration can elapse between them.
+    public static void CharDown(char c) { Send(new INPUT[] { UnicodeInput(c, false) }); }
+    public static void CharUp(char c) { Send(new INPUT[] { UnicodeInput(c, true) }); }
+    public static void KeyDown(ushort vk) { Send(new INPUT[] { VirtualKeyInput(vk, false) }); }
+    public static void KeyUp(ushort vk) { Send(new INPUT[] { VirtualKeyInput(vk, true) }); }
 }
 "@
 
@@ -148,6 +160,86 @@ function Wait-Precise([double]$ms) {
   }
 }
 
+# Replays a schedule sampled from the typing model: one step per line, as
+#   delayUs,holdUs,kind,value
+# where kind 0 is a Unicode character (value is its code point) and kind 1 is a
+# virtual key such as Enter, Tab or Backspace. Repeats and line delays are
+# already baked in, so this plays straight through.
+function Invoke-Schedule([string]$path) {
+  $lines = [System.IO.File]::ReadAllLines($path)
+
+  # Parsed into parallel arrays rather than objects: at a few hundred thousand
+  # steps the allocation cost of one object per keystroke is noticeable.
+  $count = $lines.Length
+  $delayMs = New-Object 'double[]' $count
+  $holdMs = New-Object 'double[]' $count
+  $kind = New-Object 'int[]' $count
+  $value = New-Object 'int[]' $count
+
+  $steps = 0
+  $total = 0
+  foreach ($line in $lines) {
+    if ($line.Length -eq 0) { continue }
+    $parts = $line.Split(',')
+    if ($parts.Length -lt 4) { continue }
+    $delayMs[$steps] = [int]::Parse($parts[0]) / 1000.0
+    $holdMs[$steps] = [int]::Parse($parts[1]) / 1000.0
+    $kind[$steps] = [int]::Parse($parts[2])
+    $value[$steps] = [int]::Parse($parts[3])
+    if ($kind[$steps] -eq 1 -and $value[$steps] -eq 8) { $total-- } else { $total++ }
+    $steps++
+  }
+  if ($total -lt 1) { $total = 1 }
+
+  $typed = 0
+  $lastReport = -1
+
+  for ($i = 0; $i -lt $steps; $i++) {
+    if (($i -band 7) -eq 0 -and (Test-Stopped)) { return }
+
+    if ($DryRun) {
+      Emit ("#T {0} {1} {2} {3}" -f $kind[$i], $value[$i], [int]$delayMs[$i], [int]$holdMs[$i])
+      if ($kind[$i] -eq 1 -and $value[$i] -eq 8) { $typed-- } else { $typed++ }
+      continue
+    }
+
+    Wait-Precise $delayMs[$i]
+    $hold = $holdMs[$i]
+
+    if ($kind[$i] -eq 1) {
+      $vk = [uint16]$value[$i]
+      [AutoTyperNative]::KeyDown($vk)
+      Wait-Precise $hold
+      [AutoTyperNative]::KeyUp($vk)
+      if ($value[$i] -eq 8) { $typed-- } else { $typed++ }
+    }
+    elseif ($value[$i] -gt 0xFFFF) {
+      # Astral characters go as a surrogate pair in one batch, so there is no
+      # meaningful hold to apply.
+      $offset = $value[$i] - 0x10000
+      $high = [char](0xD800 + ($offset -shr 10))
+      $low = [char](0xDC00 + ($offset -band 0x3FF))
+      [AutoTyperNative]::SendSurrogatePair($high, $low)
+      $typed++
+    }
+    else {
+      $c = [char]$value[$i]
+      [AutoTyperNative]::CharDown($c)
+      Wait-Precise $hold
+      [AutoTyperNative]::CharUp($c)
+      $typed++
+    }
+
+    $pct = [int](100 * $typed / $total)
+    if ($pct -ne $lastReport) {
+      $lastReport = $pct
+      Emit "#P $typed $total"
+    }
+  }
+
+  Emit "#P $total $total"
+}
+
 try {
   $text = [System.IO.File]::ReadAllText($TextFile, [System.Text.Encoding]::UTF8)
   $text = $text -replace "`r`n", "`n" -replace "`r", "`n"
@@ -167,6 +259,12 @@ try {
     $remainingMs -= $slice
   }
   Emit '#C 0'
+
+  if ($ScheduleFile) {
+    Invoke-Schedule $ScheduleFile
+    Emit '#D'
+    exit 0
+  }
 
   $rand = New-Object System.Random
   $jitter = [Math]::Max(0, [Math]::Min(100, $JitterPct)) / 100.0

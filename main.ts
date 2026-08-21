@@ -6,8 +6,15 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
 import * as crypto from 'node:crypto';
+import { Keystroke, sampleSchedule } from './src/model/sampler';
+import { TypingModel } from './src/model/types';
 
 const IS_WINDOWS = process.platform === 'win32';
+
+/** Virtual key codes for the keys that are sent as keys rather than characters. */
+const VK_BACK = 8;
+const VK_TAB = 9;
+const VK_RETURN = 13;
 
 interface Settings {
   text: string;
@@ -15,6 +22,10 @@ interface Settings {
   wpm: number;
   delayMs: number;
   jitterPct: number;
+  /** Draw timings from the fitted human typing model rather than a flat delay. */
+  humanize: boolean;
+  /** Typing mistakes per hundred characters; every one of them gets corrected. */
+  errorPct: number;
   startDelaySec: number;
   lineDelayMs: number;
   repeat: number;
@@ -30,6 +41,7 @@ type StartOptions = Partial<Settings>;
 interface RunFiles {
   text: string;
   stop: string;
+  schedule: string;
 }
 
 interface HotkeyResult {
@@ -50,6 +62,9 @@ const DEFAULT_SETTINGS: Settings = {
   wpm: 240,
   delayMs: 40,
   jitterPct: 15,
+  humanize: true,
+  // Replaced on load with the rate fitted from the dataset.
+  errorPct: 3,
   startDelaySec: 3,
   lineDelayMs: 0,
   repeat: 1,
@@ -60,12 +75,39 @@ const DEFAULT_SETTINGS: Settings = {
   stopHotkey: 'F7',
 };
 
+let cachedModel: TypingModel | null = null;
+
+/**
+ * The typing model fitted from the 136M Keystrokes dataset.
+ *
+ * Read from disk rather than imported so it stays a plain data file inside the
+ * packaged asar, and cached because every run needs it.
+ */
+function typingModel(): TypingModel {
+  if (!cachedModel) {
+    const file = path.join(__dirname, 'src', 'model', 'typing-model.json');
+    cachedModel = JSON.parse(fs.readFileSync(file, 'utf8')) as TypingModel;
+  }
+  return cachedModel;
+}
+
+function defaultSettings(): Settings {
+  let errorPct = DEFAULT_SETTINGS.errorPct;
+  try {
+    errorPct = Math.round(typingModel().errors.rate * 1000) / 10;
+  } catch {
+    /* fall back to the literal default if the model is missing */
+  }
+  return { ...DEFAULT_SETTINGS, errorPct };
+}
+
 function loadSettings(): Settings {
+  const defaults = defaultSettings();
   try {
     const raw = JSON.parse(fs.readFileSync(settingsPath(), 'utf8'));
-    return { ...DEFAULT_SETTINGS, ...raw };
+    return { ...defaults, ...raw };
   } catch {
-    return { ...DEFAULT_SETTINGS };
+    return defaults;
   }
 }
 
@@ -102,7 +144,7 @@ function engineScriptPath(): string {
 
 function cleanupRunFiles(): void {
   if (!runFiles) return;
-  for (const file of [runFiles.text, runFiles.stop]) {
+  for (const file of [runFiles.text, runFiles.stop, runFiles.schedule]) {
     try {
       fs.rmSync(file, { force: true });
     } catch {
@@ -122,6 +164,65 @@ function delayForOptions(options: StartOptions): number {
   return Math.max(0, Number(options.delayMs) || 0);
 }
 
+/** Target speed in words per minute, whichever way the user expressed it. */
+function wpmForOptions(options: StartOptions): number {
+  if (options.speedMode === 'delay') {
+    const delayMs = Math.max(1, Number(options.delayMs) || 1);
+    return 60000 / (delayMs * 5);
+  }
+  return Math.max(1, Number(options.wpm) || DEFAULT_SETTINGS.wpm);
+}
+
+/**
+ * Samples the keystrokes for a whole run.
+ *
+ * Each repetition is sampled separately so its mistakes and pauses differ; a run
+ * that repeated the same stumble in the same place would give itself away.
+ */
+function buildSchedule(options: StartOptions): Keystroke[] {
+  const model = typingModel();
+  const text = String(options.text ?? '');
+  const repeat = Math.max(1, Math.round(Number(options.repeat) || 1));
+  const repeatDelayUs = Math.round(Math.max(0, Number(options.repeatDelayMs) || 0) * 1000);
+  const errorRate = Math.max(0, Math.min(0.5, (Number(options.errorPct) || 0) / 100));
+
+  const keystrokes: Keystroke[] = [];
+  for (let pass = 0; pass < repeat; pass++) {
+    const schedule = sampleSchedule(model, {
+      text,
+      wpm: wpmForOptions(options),
+      errorRate,
+      lineDelayMs: Math.max(0, Number(options.lineDelayMs) || 0),
+    });
+    if (pass > 0 && schedule.length) schedule[0].delayUs += repeatDelayUs;
+    for (const keystroke of schedule) keystrokes.push(keystroke);
+  }
+  return keystrokes;
+}
+
+/** One step per line: delayUs,holdUs,kind,value. See Invoke-Schedule in typer.ps1. */
+function serializeSchedule(schedule: Keystroke[]): string {
+  const lines: string[] = [];
+  for (const keystroke of schedule) {
+    let kind = 0;
+    let value = 0;
+    if (keystroke.kind === 'backspace') {
+      kind = 1;
+      value = VK_BACK;
+    } else if (keystroke.ch === '\n') {
+      kind = 1;
+      value = VK_RETURN;
+    } else if (keystroke.ch === '\t') {
+      kind = 1;
+      value = VK_TAB;
+    } else {
+      value = keystroke.ch.codePointAt(0) ?? 32;
+    }
+    lines.push(keystroke.delayUs + ',' + keystroke.holdUs + ',' + kind + ',' + value);
+  }
+  return lines.join('\n');
+}
+
 function startTyping(options: StartOptions): { ok: boolean; error?: string } {
   if (typer) return { ok: false, error: 'Already typing.' };
   if (!IS_WINDOWS) {
@@ -135,6 +236,7 @@ function startTyping(options: StartOptions): { ok: boolean; error?: string } {
   runFiles = {
     text: path.join(os.tmpdir(), `autotyper-text-${id}.txt`),
     stop: path.join(os.tmpdir(), `autotyper-stop-${id}.flag`),
+    schedule: path.join(os.tmpdir(), `autotyper-schedule-${id}.csv`),
   };
 
   try {
@@ -144,6 +246,17 @@ function startTyping(options: StartOptions): { ok: boolean; error?: string } {
     return { ok: false, error: `Could not stage the text: ${(err as Error).message}` };
   }
 
+  let humanize = options.humanize !== false;
+  if (humanize) {
+    try {
+      fs.writeFileSync(runFiles.schedule, serializeSchedule(buildSchedule(options)), 'utf8');
+    } catch (err) {
+      // A missing or unreadable model should cost the human rhythm, not the run.
+      console.error('Typing model unavailable, falling back to an even pace:', (err as Error).message);
+      humanize = false;
+    }
+  }
+
   const args = [
     '-NoProfile',
     '-NonInteractive',
@@ -151,6 +264,9 @@ function startTyping(options: StartOptions): { ok: boolean; error?: string } {
     '-File', engineScriptPath(),
     '-TextFile', runFiles.text,
     '-StopFile', runFiles.stop,
+    // In humanised mode the schedule carries the timings, repeats and line
+    // delays, and the flat-delay arguments below go unused.
+    ...(humanize ? ['-ScheduleFile', runFiles.schedule] : []),
     '-DelayUs', String(Math.round(delayForOptions(options) * 1000)),
     '-JitterPct', String(Math.round(Number(options.jitterPct) || 0)),
     '-StartDelayMs', String(Math.round((Number(options.startDelaySec) || 0) * 1000)),
@@ -307,6 +423,22 @@ app.whenReady().then(() => {
       win.focus();
     }
     return true;
+  });
+  ipcMain.handle('model:info', () => {
+    try {
+      const model = typingModel();
+      return {
+        available: true,
+        fittedErrorPct: Math.round(model.errors.rate * 1000) / 10,
+        medianWpm: model.fitted.medianWpm,
+        participants: model.fitted.participants,
+        keystrokes: model.fitted.keystrokes,
+        source: model.source.name,
+        url: model.source.url,
+      };
+    } catch {
+      return { available: false };
+    }
   });
   ipcMain.handle('app:platform', () => ({
     platform: process.platform,

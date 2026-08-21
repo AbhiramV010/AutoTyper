@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld('autotyper', {
   setAlwaysOnTop: (value: boolean) => ipcRenderer.invoke('window:setAlwaysOnTop', value),
   restoreWindow: () => ipcRenderer.invoke('window:restore'),
   platform: () => ipcRenderer.invoke('app:platform'),
+  modelInfo: () => ipcRenderer.invoke('model:info'),
 
   onStarted: on<void>('typing:started'),
   onStopped: on<{ error: string | null }>('typing:stopped'),

@@ -221,6 +221,31 @@ input[type="range"]::-webkit-slider-thumb {
   font-size: 12px;
 }
 
+.check {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: auto;
+  font-size: 13px;
+  color: var(--text);
+  cursor: pointer;
+}
+
+.check input {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  margin: 0;
+  accent-color: var(--text);
+  cursor: pointer;
+}
+
+/* Dimmed rather than hidden, so the setting stays visible while it is inert. */
+.row.disabled {
+  opacity: 0.4;
+  pointer-events: none;
+}
+
 .btn-avg {
   flex: none;
   padding: 6px 14px;

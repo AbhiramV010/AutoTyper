@@ -47,6 +47,28 @@
 
         <p class="hint" id="estimate">&nbsp;</p>
       </section>
+
+      <section class="card">
+        <div class="card-head"><label>Human typing</label></div>
+
+        <div class="row">
+          <label for="humanize">Rhythm</label>
+          <label class="check">
+            <input type="checkbox" id="humanize" />
+            <span>Vary timing using the trained model</span>
+          </label>
+        </div>
+
+        <div class="row" id="errorRow">
+          <label for="errorPct">Typos</label>
+          <input type="range" id="errorPctRange" min="0" max="10" step="0.1" />
+          <input type="number" id="errorPct" min="0" max="10" step="0.1" />
+          <span class="unit">per 100</span>
+          <button type="button" id="humanErrorBtn" class="btn-avg">Human rate</button>
+        </div>
+
+        <p class="hint" id="modelHint">&nbsp;</p>
+      </section>
     </main>
 
     <footer class="controls">

@@ -9,11 +9,15 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "sourceMap": true
+    "resolveJsonModule": true,
+    "rootDir": ".",
+    "outDir": ".tools-build",
+    "types": [
+      "node"
+    ]
   },
   "include": [
-    "main.ts",
-    "preload.ts",
+    "tools/**/*.ts",
     "src/model/**/*.ts"
   ]
 }
