@@ -1,12 +1,9 @@
 'use strict';
 
 /**
- * Turns text into a schedule of keystrokes with human timings, drawn from the
- * model fitted in tools/train-model.ts.
+ * Turns text into a schedule of keystrokes with human timings.
  *
- * The schedule is produced up front rather than sampled inside the typing engine
- * so that the statistics stay in one place and can be tested without sending any
- * real keyboard input.
+ * Sampled up front, so the statistics stay testable without a real keyboard.
  */
 
 import { LogNormal, TypingModel, charClass } from './types';
@@ -23,10 +20,7 @@ export interface SampleOptions {
   text: string;
   /** Target net speed for the original text, corrections included. */
   wpm: number;
-  /**
-   * Typing mistakes per character. Defaults to the fitted human rate; 0 disables
-   * them, and the text always ends up correct either way.
-   */
+  /** Mistakes per character; 0 disables them. The text ends correct regardless. */
   errorRate?: number;
   /** Extra pause after a newline, in ms. */
   lineDelayMs?: number;
@@ -161,26 +155,16 @@ interface PlannedKey {
 }
 
 /**
- * Decides what gets typed, including mistakes and the backspaces that undo them.
+ * Decides what gets typed, mistakes and the backspaces that undo them included.
  *
- * Every mistake is fully corrected, so the characters that survive are exactly
- * the input text. The dataset does contain errors people never noticed, but an
- * autotyper that silently emits wrong text is broken, so only the timing of the
- * correction is taken from the data, not the decision to skip it.
+ * Every mistake is corrected, so only its timing comes from the data.
  */
 function planKeys(model: TypingModel, chars: string[], errorRate: number, random: Random): PlannedKey[] {
   const keys: PlannedKey[] = [];
   const kinds = model.errors.kinds;
   const text = chars;
 
-  /**
-   * Whether one backspace is certain to remove exactly this character.
-   *
-   * Editors disagree about astral characters and combining marks: some delete
-   * the whole thing, some a single code unit. A correction spanning one of those
-   * could leave the text mangled, so mistakes are simply never injected around
-   * them.
-   */
+  /** Whether one backspace removes exactly this character; editors disagree on astral ones. */
   const simple = (ch: string): boolean => ch.length === 1 && !/\p{M}/u.test(ch);
 
   /** Characters typeable from `at` without crossing a line break or a risky character. */
@@ -234,8 +218,7 @@ function planKeys(model: TypingModel, chars: string[], errorRate: number, random
       mistaken.push(wrong);
     }
 
-    // Carry on obliviously for a while, then notice and backspace over everything
-    // typed since the mistake.
+    // Type on obliviously for a while, then backspace over everything since.
     const consumed = kind === 'transposition' ? 2 : kind === 'insertion' ? 0 : 1;
     const lag = Math.min(random.fromPmf(model.errors.detectionLag), runLength(i + consumed, 8));
     const followOn: string[] = [];
@@ -268,24 +251,20 @@ function sampleLogNormal(distribution: LogNormal, random: Random, extraSigma = 0
 /**
  * Produces the full keystroke schedule for a run.
  *
- * Intervals are drawn as a multiple of a reference pace and then scaled once at
- * the end, so the finished run matches the requested WPM over the original text
- * even though corrections add keystrokes.
+ * Intervals are scaled once at the end, so added corrections never change the WPM.
  */
 export function sampleSchedule(model: TypingModel, options: SampleOptions): Keystroke[] {
   const text = options.text.replace(/\r\n/g, '\n').replace(/\r/g, '\n');
   if (!text.length) return [];
 
-  // Split by code point so an emoji stays one keystroke instead of two lone
-  // surrogates that would be sent as garbage.
+  // Split by code point so an emoji stays a single keystroke.
   const chars = Array.from(text);
 
   const random = new Random(mulberry32(options.seed ?? (Math.random() * 2 ** 32) >>> 0));
   const errorRate = Math.max(0, Math.min(0.5, options.errorRate ?? model.errors.rate));
   const keys = planKeys(model, chars, errorRate, random);
 
-  // One speed level for the whole run, matching how a typist's pace is fixed
-  // within a run but differs between runs.
+  // One speed level per run, as a typist's pace is fixed within one.
   const runOffset = random.normal() * model.variation.runSigma;
   const keystrokeSigma = model.variation.keystrokeSigma;
 
@@ -304,18 +283,15 @@ export function sampleSchedule(model: TypingModel, options: SampleOptions): Keys
       ratio = 1;
     } else {
       const distribution = expectedInterval(model, previousChar, key.ch);
-      // The letter pair supplies the mean; all of the spread comes from the
-      // fitted per-keystroke variation, so the two are not counted twice.
+      // The pair supplies the mean; all spread comes from per-keystroke variation.
       ratio = Math.exp(distribution.mu + runOffset + keystrokeSigma * random.normal());
     }
 
     let delayMs = model.fitted.medianIkiMs * ratio;
     if (previousChar === '\n' && options.lineDelayMs) delayMs += options.lineDelayMs;
 
-    // The model also carries fitted key hold durations, but they are not emitted:
-    // holding a key long enough to be realistic trips the system key-repeat, which
-    // duplicates characters and makes one backspace delete several. Intervals are
-    // press-to-press anyway, so the timing is unaffected by leaving holds out.
+    // Hold durations are fitted but never emitted: realistic holds trip key-repeat.
+    // Intervals are press-to-press, so leaving holds out changes no timing.
     schedule.push({
       kind: key.kind,
       ch: key.ch,
@@ -332,9 +308,7 @@ export function sampleSchedule(model: TypingModel, options: SampleOptions): Keys
 /**
  * Scales every interval by one factor so the run delivers the requested speed.
  *
- * Speed is measured against the original text, not the keystrokes actually sent:
- * asking for 60 WPM should give 60 WPM of finished text regardless of how much
- * backtracking happened along the way.
+ * Speed is measured against the original text, not the keystrokes actually sent.
  */
 function rescaleToWpm(schedule: Keystroke[], characters: number, wpm: number): void {
   const target = (characters / (Math.max(1, wpm) * 5)) * 60000;

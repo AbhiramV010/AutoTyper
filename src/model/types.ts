@@ -3,11 +3,8 @@
 /**
  * Shape of the fitted typing model.
  *
- * Timings are stored as log-normal parameters over a *ratio* to the typist's own
- * median inter-key interval, not as absolute milliseconds. That separates how
- * hard a letter pair is to type from how fast the person typing it was, so the
- * app can rescale the whole distribution to whatever WPM the user asks for while
- * keeping the human shape.
+ * Timings are log-normal ratios to the typist's own median interval, which
+ * separates letter-pair difficulty from raw speed so any WPM can be rescaled.
  */
 
 /** Log-normal parameters, in log space. */
@@ -32,15 +29,9 @@ export interface ErrorModel {
     insertion: number;
     transposition: number;
   };
-  /**
-   * P(typed | intended) for substitutions, as intended -> typed -> probability.
-   * Pairs never seen fall back to a QWERTY-adjacency prior at sample time.
-   */
+  /** P(typed | intended) substitutions; unseen pairs fall back to QWERTY adjacency. */
   confusion: Record<string, Record<string, number>>;
-  /**
-   * How many further characters get typed before the mistake is noticed, as a
-   * probability mass function indexed by that count (index 0 = caught at once).
-   */
+  /** Characters typed before the mistake is noticed, as a pmf; 0 means immediately. */
   detectionLag: number[];
   /** The pause before the first backspace, as a ratio to the typist's median interval. */
   noticePause: LogNormal;
@@ -83,11 +74,8 @@ export interface TypingModel {
   /**
    * How intervals vary around their letter-pair mean.
    *
-   * Measured autocorrelation of the log interval is flat across lags 1 to 10
-   * rather than decaying, so there is no slow drift within a run to model: what
-   * looks like drift is a fixed speed level per typist and per run, on top of
-   * variation that is independent keystroke to keystroke. Modelling it as such
-   * keeps the sampler honest to the data instead of inventing a trend.
+   * Autocorrelation stays flat across lags, so there is no drift to model:
+   * a fixed speed level per run, plus independent per-keystroke variation.
    */
   variation: {
     /** Log-space SD of the run-level speed offset, drawn once per run. */

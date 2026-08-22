@@ -77,12 +77,7 @@ const DEFAULT_SETTINGS: Settings = {
 
 let cachedModel: TypingModel | null = null;
 
-/**
- * The typing model fitted from the 136M Keystrokes dataset.
- *
- * Read from disk rather than imported so it stays a plain data file inside the
- * packaged asar, and cached because every run needs it.
- */
+/** Fitted 136M-Keystrokes model, read from disk as asar-safe data, then cached. */
 function typingModel(): TypingModel {
   if (!cachedModel) {
     const file = path.join(__dirname, 'src', 'model', 'typing-model.json');
@@ -124,10 +119,7 @@ function send(channel: string, payload?: unknown): void {
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
 }
 
-/**
- * The engine script has to live on the real filesystem: once the app is packaged
- * its own files sit inside an asar archive that powershell.exe cannot read.
- */
+/** The engine script must sit on disk; powershell cannot read an asar. */
 function engineScriptPath(): string {
   const source = path.join(__dirname, 'src', 'typer.ps1');
   const target = path.join(os.tmpdir(), `autotyper-engine-${app.getVersion()}.ps1`);
@@ -173,12 +165,7 @@ function wpmForOptions(options: StartOptions): number {
   return Math.max(1, Number(options.wpm) || DEFAULT_SETTINGS.wpm);
 }
 
-/**
- * Samples the keystrokes for a whole run.
- *
- * Each repetition is sampled separately so its mistakes and pauses differ; a run
- * that repeated the same stumble in the same place would give itself away.
- */
+/** Samples a whole run; each repetition differs so repeats give nothing away. */
 function buildSchedule(options: StartOptions): Keystroke[] {
   const model = typingModel();
   const text = String(options.text ?? '');
@@ -264,8 +251,7 @@ function startTyping(options: StartOptions): { ok: boolean; error?: string } {
     '-File', engineScriptPath(),
     '-TextFile', runFiles.text,
     '-StopFile', runFiles.stop,
-    // In humanised mode the schedule carries the timings, repeats and line
-    // delays, and the flat-delay arguments below go unused.
+    // Humanised mode: the schedule carries timings, so flat delays go unused.
     ...(humanize ? ['-ScheduleFile', runFiles.schedule] : []),
     '-DelayUs', String(Math.round(delayForOptions(options) * 1000)),
     '-JitterPct', String(Math.round(Number(options.jitterPct) || 0)),
@@ -328,8 +314,7 @@ function startTyping(options: StartOptions): { ok: boolean; error?: string } {
 
 function stopTyping(): { ok: boolean } {
   if (!typer) return { ok: false };
-  // The flag lets the engine finish the keystroke it is on and exit cleanly;
-  // killing the process is the fallback if it is wedged somewhere.
+  // The flag lets the engine exit cleanly; killing it is the fallback.
   try {
     if (runFiles) fs.writeFileSync(runFiles.stop, '');
   } catch {

@@ -1,10 +1,6 @@
 <#
-  A text box to type into, for testing the engine with real keyboard input.
-
-  Dry-run testing cannot catch faults that only exist once keystrokes go through
-  the OS -- key repeat from a held key being the one that mattered. This opens a
-  focused, always-on-top window, lets the engine type into it for real, and
-  prints back what actually arrived.
+  A text box to type into, for testing the engine with real keystrokes.
+  Dry runs miss OS-level faults such as key repeat from a held key.
 
   Prints:
     RESULT <single line, with \n and \r escaped>
@@ -35,8 +31,7 @@ $box.Font = New-Object System.Drawing.Font('Consolas', 11)
 $box.AcceptsTab = $true
 $form.Controls.Add($box)
 
-# The engine is started first and waits out its countdown while the window comes
-# up and takes focus, so no separate handshake is needed.
+# The engine starts first and waits out its countdown while focus settles.
 $arguments = @(
   '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
   '-File', $Engine,
@@ -55,8 +50,7 @@ $timer.Add_Tick({
       $form.Close()
     }
     else {
-      # Keep the target focused: anything that steals focus mid-run would take
-      # the rest of the keystrokes with it.
+      # Keep focus: anything stealing it takes the remaining keystrokes.
       $form.Activate()
     }
   })

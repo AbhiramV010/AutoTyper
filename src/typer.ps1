@@ -1,12 +1,8 @@
 <#
-  AutoTyper typing engine.
+  Replays UTF-8 file text as real keystrokes via SendInput.
 
-  Reads UTF-8 text from a file and replays it as real keyboard input via the
-  Win32 SendInput API, so any focused application receives it exactly as if it
-  had been typed by hand.
-
-  Protocol on stdout (consumed by the Electron main process):
-    #C <secondsRemaining>     countdown tick before typing starts
+  stdout protocol, consumed by the Electron main process:
+    #C <secondsRemaining>     countdown tick
     #P <typedChars> <total>   progress
     #E <message>              fatal error
     #D                        done
@@ -15,8 +11,7 @@
 param(
   [Parameter(Mandatory = $true)][string]$TextFile,
   [string]$StopFile = '',
-  # When given, timings come from this pre-sampled schedule instead of the flat
-  # delay below. See src/model/sampler.ts for how it is produced.
+  # Pre-sampled timings from src/model/sampler.ts; overrides the flat delay.
   [string]$ScheduleFile = '',
   [int]$DelayUs = 40000,
   [int]$JitterPct = 0,
@@ -24,16 +19,13 @@ param(
   [int]$Repeat = 1,
   [int]$LineDelayMs = 0,
   [int]$RepeatDelayMs = 500,
-  # Reports what would be typed instead of sending it, for testing the engine
-  # without taking over the keyboard. Waits are skipped so a run finishes fast.
+  # Reports keystrokes instead of sending them; skips every wait.
   [switch]$DryRun
 )
 
 $ErrorActionPreference = 'Stop'
 
-# Delay is passed in whole microseconds so it survives the argument round-trip on
-# every locale; a fractional string like "41.666" would be misparsed as 41666
-# under a comma-decimal culture.
+# Whole microseconds, so comma-decimal locales cannot misparse the argument.
 $DelayMs = $DelayUs / 1000.0
 $OutputEncoding = [System.Text.Encoding]::UTF8
 
@@ -58,8 +50,7 @@ public static class AutoTyperNative
         public IntPtr dwExtraInfo;
     }
 
-    // Union of MOUSE/KEYBD/HARDWARE input. On x64 the union starts at offset 8
-    // and the whole struct is 40 bytes.
+    // MOUSE/KEYBD/HARDWARE union: offset 8 on x64, 40 bytes total.
     [StructLayout(LayoutKind.Explicit, Size = 40)]
     public struct INPUT
     {
@@ -136,8 +127,7 @@ function Test-Stopped {
   return $false
 }
 
-# Start-Sleep only has ~15 ms resolution, which is useless for fast typing, so
-# short waits are spun out against a high-resolution timer instead.
+# Start-Sleep resolves to ~15 ms, so short waits spin instead.
 function Wait-Precise([double]$ms) {
   if ($ms -le 0.05) { return }
   if ($ms -ge 20) {
@@ -154,21 +144,14 @@ function Wait-Precise([double]$ms) {
   }
 }
 
-# Replays a schedule sampled from the typing model: one step per line, as
-#   delayUs,kind,value
-# where kind 0 is a Unicode character (value is its code point) and kind 1 is a
-# virtual key such as Enter, Tab or Backspace. Repeats and line delays are
-# already baked in, so this plays straight through.
-#
-# Every key is pressed and released in a single SendInput batch. Holding a key
-# down for a modelled duration instead was tried and is unusable: once a hold
-# passes the system's key-repeat delay Windows repeats the key, which duplicates
-# characters and, far worse, makes a single backspace eat several characters.
+# Sampled schedule, one "delayUs,kind,value" step per line, played straight through.
+# Kind 0 is a Unicode code point, kind 1 a virtual key.
+# Repeats and line delays are already baked into the schedule.
+# Press and release together: longer holds trigger Windows key-repeat.
 function Invoke-Schedule([string]$path) {
   $lines = [System.IO.File]::ReadAllLines($path)
 
-  # Parsed into parallel arrays rather than objects: at a few hundred thousand
-  # steps the allocation cost of one object per keystroke is noticeable.
+  # Parallel arrays, not objects: per-keystroke allocation costs too much.
   $count = $lines.Length
   $delayMs = New-Object 'double[]' $count
   $kind = New-Object 'int[]' $count
@@ -237,7 +220,7 @@ try {
   $total = $text.Length * $Repeat
   $typed = 0
 
-  # Countdown so the user can click into the window they want to type in.
+  # Countdown so the user can focus the target window.
   $remainingMs = $StartDelayMs
   while ($remainingMs -gt 0) {
     if (Test-Stopped) { exit 0 }
@@ -289,7 +272,7 @@ try {
         Emit "#P $typed $total"
       }
 
-      # Per-keystroke pause, optionally humanised with random jitter.
+      # Per-keystroke pause, optionally humanised with jitter.
       $wait = $DelayMs
       if ($jitter -gt 0) {
         $wait = $DelayMs * (1.0 + (($rand.NextDouble() * 2.0) - 1.0) * $jitter)

@@ -3,9 +3,8 @@
 /**
  * Types into a real text box with real keystrokes and checks what arrives.
  *
- * This is the only test that exercises the actual Win32 input path, where key
- * repeat and focus behaviour live. It takes over the keyboard for a few seconds
- * per case, so it is not part of the normal verification run.
+ * The only test that exercises the Win32 input path, where key repeat lives.
+ * It takes over the keyboard, so it is not part of normal verification.
  *
  *   npm run live:verify
  *

@@ -1,9 +1,7 @@
 // AutoTyper installer.
 //
-// Clones the AutoTyper repo, builds it (git + npm must already be on PATH),
-// and copies only the runtime output into Program Files. The same binary
-// doubles as the uninstaller when invoked with /uninstall (a copy of it is
-// dropped into the install directory for that purpose).
+// Clones the repo, builds it (git + npm on PATH), installs to Program Files.
+// The same binary uninstalls itself when invoked with /uninstall.
 //
 // Build (MSVC, from a "x64 Native Tools" prompt):
 //   cl /EHsc /std:c++17 /DUNICODE /D_UNICODE main.cpp /link shell32.lib ole32.lib advapi32.lib uuid.lib /out:AutoTyperInstaller.exe
@@ -84,8 +82,7 @@ static bool IsElevated() {
     return isAdmin != FALSE;
 }
 
-// Runs a command via cmd.exe /c, sharing this process's console so the user
-// sees git/npm progress live. Returns true on exit code 0.
+// Runs a command through cmd.exe /c on this console; true on success.
 static bool RunAndWait(const std::wstring& command, const std::wstring& workDir, DWORD* exitCodeOut = nullptr) {
     std::wstring full = L"cmd.exe /c " + command;
 
@@ -385,8 +382,7 @@ static void DoUninstall() {
     DeleteUninstallRegistryKey();
 
     Log(L"Removing installed files...");
-    // We are likely running from inside installDir, so we cannot delete it
-    // synchronously. Hand off to a detached cmd that waits for us to exit.
+    // We run from inside installDir, so a detached cmd deletes it.
     std::wstring cmd = L"cmd.exe /c timeout /t 2 /nobreak >nul & rmdir /s /q \"" + installDir + L"\"";
     STARTUPINFOW si{};
     si.cb = sizeof(si);

@@ -3,8 +3,7 @@
 /**
  * Fits the typing model from cached 136M Keystrokes participant logs.
  *
- * Run `npm run dataset:fetch` first. Output is src/model/typing-model.json,
- * which holds only aggregate statistics -- no raw keystrokes are redistributed.
+ * Run `npm run dataset:fetch` first. The output holds aggregates only.
  *
  *   npm run model:train -- [--min-observations 40] [--out src/model/typing-model.json]
  */
@@ -80,10 +79,7 @@ function median(values: number[]): number {
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 }
 
-/**
- * Parses one participant log into sections, dropping any section the model
- * cannot interpret cleanly (missing letters, cursor movement).
- */
+/** Parses a participant log into sections, dropping any the model cannot replay. */
 function parseParticipant(text: string): Section[] {
   const lines = text.split(/\r?\n/);
   const sections = new Map<string, { sentence: string; events: Event[]; usable: boolean }>();
@@ -122,8 +118,7 @@ function parseParticipant(text: string): Section[] {
     }
     if (MODIFIER_KEYCODES.has(keycode)) continue;
     if (letter.length !== 1) {
-      // A printable key whose letter the collector failed to record: without it
-      // the buffer cannot be replayed, so the whole section goes.
+      // A printable key with no recorded letter: the buffer cannot be replayed.
       section.usable = false;
       continue;
     }
@@ -158,12 +153,9 @@ interface SectionAnalysis {
 }
 
 /**
- * Replays a section's keystrokes, recovering both its timing series and the
- * mistakes the typist made and corrected.
+ * Replays a section for its timings and the mistakes the typist corrected.
  *
- * Errors are read off the corrections themselves: a backspace is the typist
- * declaring that what they just typed was wrong, and the sentence they were
- * shown says what it should have been.
+ * A backspace is the typist declaring that what they just typed was wrong.
  */
 function analyzeSection(section: Section): SectionAnalysis {
   const analysis: SectionAnalysis = {
@@ -247,10 +239,7 @@ function analyzeSection(section: Section): SectionAnalysis {
   return analysis;
 }
 
-/**
- * Distinguishes a straight mis-hit from a swapped pair or an extra character,
- * by looking at what the typist went on to type before correcting.
- */
+/** Tells a plain mis-hit from a swap or an insertion by what followed. */
 function classifyError(
   sentence: string,
   position: number,
@@ -346,8 +335,7 @@ function main(): void {
     for (const analysis of analyses) for (const interval of analysis.intervals) allIkis.push(interval.iki);
     if (allIkis.length < 100) continue;
 
-    // Everything is fitted as a ratio to this typist's own pace, so that the
-    // model captures letter-pair difficulty rather than who happened to be fast.
+    // Fitted as a ratio to this typist's own pace, capturing pair difficulty.
     const participantMedian = median(allIkis);
     if (!(participantMedian > 0)) continue;
     participantMedians.push(participantMedian);
@@ -447,12 +435,9 @@ function main(): void {
 }
 
 /**
- * Splits the leftover variation into the part that is fixed for a whole run and
- * the part that changes keystroke to keystroke.
+ * Splits leftover variation into per-run and per-keystroke parts.
  *
- * The lag profile is reported alongside because it is what rules out a drifting
- * model: an autocorrelation that stays flat as the lag grows is a constant
- * offset, not a trend.
+ * A flat lag profile is what rules out drift: a constant offset, not a trend.
  */
 function fitVariation(
   files: string[],
@@ -530,8 +515,7 @@ function fitVariation(
   const meanOfMeans = sectionMeans.reduce((sum, s) => sum + s.mean, 0) / Math.max(1, sectionMeans.length);
   const rawBetween =
     sectionMeans.reduce((sum, s) => sum + (s.mean - meanOfMeans) ** 2, 0) / Math.max(1, sectionMeans.length);
-  // A section's mean carries its own sampling error, which inflates the spread
-  // of those means; subtract it so the run-level term is not overstated.
+  // A section mean carries its own sampling error; subtract it before combining.
   const samplingNoise =
     sectionMeans.reduce((sum, s) => sum + withinVariance / s.n, 0) / Math.max(1, sectionMeans.length);
   const betweenVariance = Math.max(0, rawBetween - samplingNoise);
@@ -566,8 +550,7 @@ function exportConfusion(confusion: Map<string, Map<string, number>>): Record<st
   const out: Record<string, Record<string, number>> = {};
   for (const [intended, row] of confusion) {
     const total = [...row.values()].reduce((sum, n) => sum + n, 0);
-    // Too few observations to be a distribution rather than noise; the adjacency
-    // prior in the sampler covers these.
+    // Too few observations to be a distribution; the adjacency prior covers these.
     if (total < 20) continue;
     const probabilities: Record<string, number> = {};
     for (const [typed, n] of row) {

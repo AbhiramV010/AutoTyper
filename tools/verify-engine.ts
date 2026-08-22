@@ -3,10 +3,8 @@
 /**
  * End-to-end check of the PowerShell engine against a sampled schedule.
  *
- * Runs typer.ps1 in dry-run mode, so the keystrokes are reported rather than
- * sent, and confirms the engine reconstructs exactly the text it was given.
- * This covers the parts the TypeScript tests cannot: the schedule file format,
- * PowerShell's parsing of it, and the character-versus-virtual-key split.
+ * Dry-run mode reports keystrokes instead of sending them, covering what the
+ * TypeScript tests cannot: the schedule file format and PowerShell's parsing.
  *
  *   npm run engine:verify
  */

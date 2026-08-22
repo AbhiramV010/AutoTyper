@@ -3,10 +3,8 @@
 /**
  * Minimal read-only ZIP client that works over HTTP range requests.
  *
- * The 136M Keystrokes archive is 1.4 GB and holds one file per participant, but
- * a model only needs a few thousand of them. Reading the central directory and
- * then pulling just the sampled entries keeps the download at a few tens of MB
- * instead of the whole archive.
+ * Reading the central directory and pulling only the sampled entries keeps
+ * a 1.4 GB download down to a few tens of megabytes.
  */
 
 import * as https from 'node:https';
@@ -103,8 +101,7 @@ export class RemoteZip {
     let directorySize = tail.readUInt32LE(eocd + 12);
     let directoryOffset = tail.readUInt32LE(eocd + 16);
 
-    // Archives with more than 65535 entries or past the 4 GB mark carry the real
-    // values in a zip64 record ahead of the classic one.
+    // Over 65535 entries or past 4 GB: the real values live in zip64.
     const zip64 = lastIndexOfSignature(tail, SIG_ZIP64_EOCD);
     if (zip64 >= 0) {
       entryCount = Number(tail.readBigUInt64LE(zip64 + 32));
@@ -121,8 +118,7 @@ export class RemoteZip {
 
   /** Downloads and decompresses a single entry. */
   async read(entry: ZipEntry): Promise<Buffer> {
-    // The local header repeats the name and may carry a different extra field,
-    // so its length has to be read rather than assumed from the central record.
+    // The local header's extra field may differ, so read its length.
     const guess = Math.min(30 + entry.name.length + 4096 + entry.compressedSize, this.size - entry.localHeaderOffset);
     let block = await this.range(entry.localHeaderOffset, guess);
 

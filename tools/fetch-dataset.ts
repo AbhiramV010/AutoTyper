@@ -7,9 +7,8 @@
  *   "Observations on Typing from 136 Million Keystrokes." CHI 2018.
  *   https://userinterfaces.aalto.fi/136Mkeystrokes/
  *
- * The archive is 1.4 GB, so entries are pulled individually over range requests
- * rather than downloading the whole thing. Everything lands in data/cache/,
- * which is gitignored: only the fitted model is committed, never raw keystrokes.
+ * Range requests avoid the 1.4 GB download. Output lands in gitignored
+ * data/cache/: only the fitted model is committed, never raw keystrokes.
  *
  * Usage:
  *   npm run dataset:list                 print archive layout and exit
@@ -21,8 +20,7 @@ import * as path from 'node:path';
 import { RemoteZip, ZipEntry } from './zip-remote';
 
 const ARCHIVE_URL = 'https://userinterfaces.aalto.fi/136Mkeystrokes/data/Keystrokes.zip';
-// Resolved against the working directory, not __dirname: these tools run from
-// the project root via npm scripts, but their compiled form lives in .tools-build.
+// Resolved against the working directory: npm scripts run from the project root.
 const CACHE_DIR = path.join(process.cwd(), 'data', 'cache');
 const DIRECTORY_CACHE = path.join(CACHE_DIR, 'entries.json');
 const PARTICIPANT_DIR = path.join(CACHE_DIR, 'participants');

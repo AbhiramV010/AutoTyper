@@ -129,9 +129,7 @@ let running = false;
 let saveTimer: number | undefined;
 let toastTimer: number | undefined;
 
-/* ------------------------------------------------------------------ *
- * Settings plumbing
- * ------------------------------------------------------------------ */
+/* --- Settings plumbing --- */
 
 function collect(): CollectedSettings {
   return {
@@ -167,9 +165,7 @@ function apply(loaded: LoadedSettings): void {
   refreshDerived();
 }
 
-/* ------------------------------------------------------------------ *
- * Speed controls
- * ------------------------------------------------------------------ */
+/* --- Speed controls --- */
 
 /** Paints the filled portion of a range input and mirrors it to its number box. */
 function paintRange(range: HTMLInputElement): void {
@@ -246,9 +242,7 @@ function refreshModel(): void {
     `Timing drawn from ${participants} typists in the ${model.source}; ${corrections}.`;
 }
 
-/* ------------------------------------------------------------------ *
- * Run control
- * ------------------------------------------------------------------ */
+/* --- Run control --- */
 
 function toast(message: string, isError = false): void {
   clearTimeout(toastTimer);
@@ -293,9 +287,7 @@ function stop(): void {
   el.progressText.textContent = 'Stopping...';
 }
 
-/* ------------------------------------------------------------------ *
- * Wiring
- * ------------------------------------------------------------------ */
+/* --- Wiring --- */
 
 el.startBtn.addEventListener('click', () => (running ? stop() : start()));
 el.cancelBtn.addEventListener('click', stop);

@@ -3,9 +3,8 @@
 /**
  * Checks the sampled schedules before they are ever sent to a real keyboard.
  *
- * The property that matters most is that corrections cancel out exactly: however
- * many mistakes the model injects, replaying the schedule must reproduce the
- * input text character for character.
+ * What matters most is that corrections cancel exactly: replaying a schedule
+ * must reproduce the input text character for character.
  *
  *   npm run model:verify
  */
@@ -27,12 +26,7 @@ const SAMPLES = [
   '',
 ];
 
-/**
- * Applies a schedule the way a text field would, so the result can be compared.
- *
- * Backspace removes a whole code point rather than a UTF-16 unit, matching what
- * editors do with an emoji.
- */
+/** Applies a schedule like a text field; backspace removes a whole code point. */
 function replay(schedule: Keystroke[]): string {
   const buffer: string[] = [];
   for (const key of schedule) {
@@ -130,8 +124,7 @@ function main(): void {
       backspaces += schedule.filter((key) => key.kind === 'backspace').length;
       characters += text.length;
     }
-    // Each mistake produces at least one backspace, and more when it goes
-    // unnoticed for a few characters, so this runs above the raw error rate.
+    // Every mistake adds backspaces, so this runs above the raw error rate.
     const perChar = backspaces / characters;
     check(
       'backspaces per character',
