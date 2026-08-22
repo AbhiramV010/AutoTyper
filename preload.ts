@@ -13,6 +13,7 @@ const on =
 contextBridge.exposeInMainWorld('autotyper', {
   loadSettings: () => ipcRenderer.invoke('settings:load'),
   saveSettings: (settings: unknown) => ipcRenderer.invoke('settings:save', settings),
+  listWindows: () => ipcRenderer.invoke('windows:list'),
   start: (options: unknown) => ipcRenderer.invoke('typing:start', options),
   stop: () => ipcRenderer.invoke('typing:stop'),
   isRunning: () => ipcRenderer.invoke('typing:isRunning'),

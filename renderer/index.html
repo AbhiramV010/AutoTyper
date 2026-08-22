@@ -13,15 +13,23 @@
     <header class="titlebar">
       <div>
         <h1>AutoTyper</h1>
-        <p class="subtitle">Types your text into whatever window is focused.</p>
-      </div>
-      <div class="status" id="status" data-state="idle">
-        <span class="dot"></span>
-        <span id="statusText">Idle</span>
+        <p class="subtitle">Types your text into the window you pick.</p>
       </div>
     </header>
 
     <main>
+      <section class="card">
+        <div class="card-head">
+          <label for="targetWindow">Target window</label>
+          <button type="button" id="refreshWindowsBtn" class="btn-avg">Refresh</button>
+        </div>
+        <div class="row">
+          <label for="targetWindow">Window</label>
+          <select id="targetWindow"></select>
+        </div>
+        <p class="hint" id="targetHint">&nbsp;</p>
+      </section>
+
       <section class="card">
         <div class="card-head">
           <label for="text">Text to type</label>
@@ -66,8 +74,6 @@
           <span class="unit">per 100</span>
           <button type="button" id="humanErrorBtn" class="btn-avg">Human rate</button>
         </div>
-
-        <p class="hint" id="modelHint">&nbsp;</p>
       </section>
     </main>
 
@@ -82,7 +88,7 @@
     <div class="overlay hidden" id="overlay">
       <div class="overlay-inner">
         <div class="count" id="countdown">3</div>
-        <p>Click into the window you want to type in.</p>
+        <p id="overlayHint">Switching to the window you picked...</p>
         <button type="button" id="cancelBtn" class="ghost">Cancel</button>
       </div>
     </div>

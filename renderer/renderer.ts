@@ -16,6 +16,8 @@ interface LoadedSettings {
   alwaysOnTop: boolean;
   startHotkey: string;
   stopHotkey: string;
+  targetTitle: string;
+  targetProcess: string;
 }
 
 interface CollectedSettings {
@@ -34,6 +36,9 @@ interface CollectedSettings {
   alwaysOnTop: boolean;
   startHotkey: string;
   stopHotkey: string;
+  targetHwnd: number;
+  targetTitle: string;
+  targetProcess: string;
 }
 
 interface StartResult {
@@ -56,6 +61,13 @@ interface ModelInfo {
   url?: string;
 }
 
+interface WindowInfo {
+  hwnd: number;
+  pid: number;
+  process: string;
+  title: string;
+}
+
 interface PlatformInfo {
   platform: string;
   supported: boolean;
@@ -64,6 +76,7 @@ interface PlatformInfo {
 
 interface AutotyperAPI {
   loadSettings(): Promise<LoadedSettings>;
+  listWindows(): Promise<WindowInfo[]>;
   saveSettings(settings: CollectedSettings): Promise<boolean>;
   start(options: CollectedSettings): Promise<StartResult>;
   stop(): Promise<{ ok: boolean }>;
@@ -88,6 +101,9 @@ const api = window.autotyper;
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T => document.getElementById(id) as T;
 
 const el = {
+  targetWindow: $<HTMLSelectElement>('targetWindow'),
+  refreshWindowsBtn: $<HTMLButtonElement>('refreshWindowsBtn'),
+  targetHint: $('targetHint'),
   text: $<HTMLTextAreaElement>('text'),
   charCount: $('charCount'),
   wpm: $<HTMLInputElement>('wpm'),
@@ -98,15 +114,13 @@ const el = {
   errorPct: $<HTMLInputElement>('errorPct'),
   errorPctRange: $<HTMLInputElement>('errorPctRange'),
   humanErrorBtn: $<HTMLButtonElement>('humanErrorBtn'),
-  modelHint: $('modelHint'),
   estimate: $('estimate'),
   startBtn: $<HTMLButtonElement>('startBtn'),
   progressFill: $('progressFill'),
   progressText: $('progressText'),
-  status: $('status'),
-  statusText: $('statusText'),
   overlay: $('overlay'),
   countdown: $('countdown'),
+  overlayHint: $('overlayHint'),
   cancelBtn: $<HTMLButtonElement>('cancelBtn'),
   toast: $('toast'),
 };
@@ -125,6 +139,10 @@ const FIXED_STOP_HOTKEY = 'F7';
 /** Filled in from the fitted model once it has been read. */
 let model: ModelInfo = { available: false };
 
+let windows: WindowInfo[] = [];
+/** Remembered from the last session so the same window can be re-selected. */
+let savedTarget = { title: '', process: '' };
+
 let running = false;
 let saveTimer: number | undefined;
 let toastTimer: number | undefined;
@@ -132,6 +150,7 @@ let toastTimer: number | undefined;
 /* --- Settings plumbing --- */
 
 function collect(): CollectedSettings {
+  const target = selectedWindow();
   return {
     text: el.text.value,
     speedMode: 'wpm',
@@ -148,6 +167,9 @@ function collect(): CollectedSettings {
     alwaysOnTop: FIXED_ALWAYS_ON_TOP,
     startHotkey: FIXED_START_HOTKEY,
     stopHotkey: FIXED_STOP_HOTKEY,
+    targetHwnd: target?.hwnd ?? 0,
+    targetTitle: target?.title ?? savedTarget.title,
+    targetProcess: target?.process ?? savedTarget.process,
   };
 }
 
@@ -157,12 +179,72 @@ function scheduleSave(): void {
 }
 
 function apply(loaded: LoadedSettings): void {
+  savedTarget = { title: loaded.targetTitle ?? '', process: loaded.targetProcess ?? '' };
   el.text.value = loaded.text;
   el.wpm.value = String(loaded.wpm);
   el.humanize.checked = loaded.humanize !== false;
   el.errorPct.value = String(loaded.errorPct ?? 0);
   syncSliders();
   refreshDerived();
+}
+
+/* --- Target window --- */
+
+function selectedWindow(): WindowInfo | undefined {
+  const hwnd = Number(el.targetWindow.value);
+  return windows.find((w) => w.hwnd === hwnd);
+}
+
+function windowLabel(info: WindowInfo): string {
+  const title = info.title.length > 70 ? `${info.title.slice(0, 69)}\u2026` : info.title;
+  return `${title}  \u2014  ${info.process}`;
+}
+
+/** Re-reads the open windows, keeping the current pick if it is still there. */
+async function refreshWindows(): Promise<void> {
+  const previous = selectedWindow();
+  el.refreshWindowsBtn.disabled = true;
+  try {
+    windows = await api.listWindows();
+  } finally {
+    el.refreshWindowsBtn.disabled = running;
+  }
+
+  el.targetWindow.textContent = '';
+
+  if (!windows.length) {
+    const empty = document.createElement('option');
+    empty.value = '';
+    empty.textContent = 'No open windows found';
+    el.targetWindow.append(empty);
+    el.targetWindow.disabled = true;
+    el.targetHint.textContent = 'Open the window you want to type into, then hit Refresh.';
+    return;
+  }
+
+  el.targetWindow.disabled = running;
+  for (const info of windows) {
+    const option = document.createElement('option');
+    option.value = String(info.hwnd);
+    option.textContent = windowLabel(info);
+    el.targetWindow.append(option);
+  }
+
+  // Keep the live pick if it survived; otherwise fall back to the saved one.
+  const match =
+    (previous && windows.find((w) => w.hwnd === previous.hwnd)) ??
+    windows.find((w) => w.title === savedTarget.title && w.process === savedTarget.process) ??
+    windows.find((w) => w.process === savedTarget.process);
+  el.targetWindow.value = String((match ?? windows[0]).hwnd);
+
+  refreshTargetHint();
+}
+
+function refreshTargetHint(): void {
+  const target = selectedWindow();
+  el.targetHint.textContent = target
+    ? `AutoTyper brings ${target.process} to the front when typing starts, and stops if focus moves away.`
+    : 'Pick the window the keystrokes should go to.';
 }
 
 /* --- Speed controls --- */
@@ -202,7 +284,7 @@ function formatDuration(ms: number): string {
 }
 
 function refreshDerived(): void {
-  refreshModel();
+  el.errorRow.classList.toggle('disabled', !el.humanize.checked);
   const chars = el.text.value.length;
 
   el.charCount.textContent = `${chars.toLocaleString()} character${chars === 1 ? '' : 's'}`;
@@ -219,29 +301,6 @@ function refreshDerived(): void {
   el.estimate.textContent = `About ${formatDuration(total)} at ${rate}.`;
 }
 
-/** Reflects the model state in the human-typing card. */
-function refreshModel(): void {
-  const on = el.humanize.checked;
-  el.errorRow.classList.toggle('disabled', !on);
-
-  if (!model.available) {
-    el.modelHint.textContent = 'No trained model found, so typing falls back to an even pace.';
-    return;
-  }
-  if (!on) {
-    el.modelHint.textContent = 'Every keystroke lands at the same interval.';
-    return;
-  }
-
-  const typos = Number(el.errorPct.value) || 0;
-  const corrections = typos > 0
-    ? `about ${typos} typo${typos === 1 ? '' : 's'} per 100 characters, each one backspaced and fixed`
-    : 'no typos';
-  const participants = (model.participants ?? 0).toLocaleString();
-  el.modelHint.textContent =
-    `Timing drawn from ${participants} typists in the ${model.source}; ${corrections}.`;
-}
-
 /* --- Run control --- */
 
 function toast(message: string, isError = false): void {
@@ -256,18 +315,25 @@ function setRunning(value: boolean): void {
   running = value;
   el.startBtn.textContent = value ? 'Stop' : 'Start typing';
   el.startBtn.classList.toggle('stop', value);
-  el.status.dataset.state = value ? 'typing' : 'idle';
-  el.statusText.textContent = value ? 'Typing' : 'Idle';
   el.text.readOnly = value;
+  el.targetWindow.disabled = value || !windows.length;
+  el.refreshWindowsBtn.disabled = value;
   if (!value) el.overlay.classList.add('hidden');
 }
 
 async function start(): Promise<void> {
+  const target = selectedWindow();
+  if (!target) {
+    toast('Pick the window to type into first.', true);
+    await refreshWindows();
+    return;
+  }
   if (!el.text.value.length) {
     toast('Add some text to type first.', true);
     el.text.focus();
     return;
   }
+  el.overlayHint.textContent = `Switching to ${target.title}...`;
   el.progressFill.style.width = '0%';
   el.progressText.textContent = 'Starting...';
   el.countdown.textContent = String(FIXED_START_DELAY_SEC);
@@ -276,8 +342,7 @@ async function start(): Promise<void> {
   const result = await api.start(collect());
   if (!result.ok) {
     el.overlay.classList.add('hidden');
-    el.status.dataset.state = 'error';
-    el.statusText.textContent = 'Error';
+    el.progressText.textContent = 'Ready';
     toast(result.error!, true);
   }
 }
@@ -290,6 +355,20 @@ function stop(): void {
 /* --- Wiring --- */
 
 el.startBtn.addEventListener('click', () => (running ? stop() : start()));
+el.refreshWindowsBtn.addEventListener('click', () => refreshWindows());
+
+el.targetWindow.addEventListener('change', () => {
+  const target = selectedWindow();
+  if (target) savedTarget = { title: target.title, process: target.process };
+  refreshTargetHint();
+  scheduleSave();
+});
+
+// The list goes stale as soon as the user leaves; re-read it when they return.
+window.addEventListener('focus', () => {
+  if (!running) refreshWindows();
+});
+
 el.cancelBtn.addEventListener('click', stop);
 
 el.avgSpeedBtn.addEventListener('click', () => {
@@ -357,8 +436,6 @@ api.onStarted(() => setRunning(true));
 api.onStopped(async ({ error }) => {
   setRunning(false);
   if (error) {
-    el.status.dataset.state = 'error';
-    el.statusText.textContent = 'Error';
     el.progressText.textContent = 'Stopped';
     toast(error, true);
     // Surface the failure even if the window was minimized on start.
@@ -378,6 +455,7 @@ document.addEventListener('keydown', (event) => {
 (async () => {
   model = await api.modelInfo();
   apply(await api.loadSettings());
+  await refreshWindows();
   await api.registerHotkeys({ start: FIXED_START_HOTKEY, stop: FIXED_STOP_HOTKEY });
   const info = await api.platform();
   if (!info.supported) {

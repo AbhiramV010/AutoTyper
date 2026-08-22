@@ -68,33 +68,6 @@ h1 {
   font-size: 12px;
 }
 
-.status {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 12px;
-  border: 1px solid var(--line);
-  border-radius: 0;
-  background: var(--panel);
-  font-size: 12px;
-  white-space: nowrap;
-}
-
-.status .dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  background: var(--muted);
-}
-
-.status[data-state="typing"] .dot {
-  background: var(--ok);
-}
-
-.status[data-state="error"] .dot {
-  background: var(--danger);
-}
-
 /* ---------- layout ---------- */
 
 main {
@@ -175,8 +148,26 @@ input[type="number"] {
   text-align: right;
 }
 
+select {
+  flex: 1;
+  min-width: 0;
+  padding: 7px 10px;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  background: var(--panel-2);
+  color: var(--text);
+  font: inherit;
+  cursor: pointer;
+}
+
+select:disabled {
+  color: var(--muted);
+  cursor: default;
+}
+
 textarea:focus,
-input:focus {
+input:focus,
+select:focus {
   outline: none;
   border-color: var(--text);
 }
@@ -258,8 +249,13 @@ input[type="range"]::-webkit-slider-thumb {
   white-space: nowrap;
 }
 
-.btn-avg:hover {
+.btn-avg:hover:not(:disabled) {
   border-color: var(--text);
+}
+
+.btn-avg:disabled {
+  color: var(--muted);
+  cursor: default;
 }
 
 /* ---------- footer ---------- */

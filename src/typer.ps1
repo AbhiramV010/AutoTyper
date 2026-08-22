@@ -11,6 +11,9 @@
 param(
   [Parameter(Mandatory = $true)][string]$TextFile,
   [string]$StopFile = '',
+  # Window the keystrokes belong to; it is brought to the front before typing
+  # starts and watched afterwards, so nothing lands in the wrong place.
+  [long]$TargetHwnd = 0,
   # Pre-sampled timings from src/model/sampler.ts; overrides the flat delay.
   [string]$ScheduleFile = '',
   [int]$DelayUs = 40000,
@@ -61,6 +64,34 @@ public static class AutoTyperNative
     [DllImport("user32.dll", SetLastError = true)]
     private static extern uint SendInput(uint nInputs, INPUT[] pInputs, int cbSize);
 
+    [DllImport("user32.dll")]
+    private static extern bool SetForegroundWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    private static extern bool IsWindow(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern bool IsIconic(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern bool ShowWindow(IntPtr hWnd, int nCmdShow);
+
+    [DllImport("user32.dll")]
+    private static extern bool BringWindowToTop(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint pid);
+
+    [DllImport("user32.dll")]
+    private static extern bool AttachThreadInput(uint attach, uint attachTo, bool join);
+
+    [DllImport("kernel32.dll")]
+    private static extern uint GetCurrentThreadId();
+
+    private const int SW_RESTORE = 9;
     private const uint INPUT_KEYBOARD = 1;
     private const uint KEYEVENTF_KEYUP = 0x0002;
     private const uint KEYEVENTF_UNICODE = 0x0004;
@@ -116,15 +147,95 @@ public static class AutoTyperNative
     {
         Send(new INPUT[] { VirtualKeyInput(vk, false), VirtualKeyInput(vk, true) });
     }
+
+    /// <summary>Owning process of a window, or 0 if the handle is dead.</summary>
+    private static uint ProcessOf(IntPtr hWnd)
+    {
+        uint pid;
+        if (!IsWindow(hWnd)) return 0;
+        GetWindowThreadProcessId(hWnd, out pid);
+        return pid;
+    }
+
+    public static bool Exists(IntPtr hWnd)
+    {
+        return IsWindow(hWnd);
+    }
+
+    /// <summary>
+    /// True while the front window belongs to the target's process. Dialogs and
+    /// popups of the target app count, anything else does not.
+    /// </summary>
+    public static bool HasFocus(IntPtr hWnd)
+    {
+        IntPtr front = GetForegroundWindow();
+        if (front == hWnd) return true;
+        uint target = ProcessOf(hWnd);
+        if (target == 0) return false;
+        uint pid;
+        GetWindowThreadProcessId(front, out pid);
+        return pid == target;
+    }
+
+    /// <summary>
+    /// Brings the target to the front. Windows only grants a plain
+    /// SetForegroundWindow to a few callers, so this also borrows the input
+    /// queue of the current front window, which covers the rest.
+    /// </summary>
+    public static bool Focus(IntPtr hWnd)
+    {
+        if (!IsWindow(hWnd)) return false;
+        if (IsIconic(hWnd)) ShowWindow(hWnd, SW_RESTORE);
+
+        for (int attempt = 0; attempt < 20; attempt++)
+        {
+            if (HasFocus(hWnd)) return true;
+
+            SetForegroundWindow(hWnd);
+            if (HasFocus(hWnd)) return true;
+
+            IntPtr front = GetForegroundWindow();
+            uint frontThread = 0;
+            uint pid;
+            if (front != IntPtr.Zero) frontThread = GetWindowThreadProcessId(front, out pid);
+            uint targetThread = GetWindowThreadProcessId(hWnd, out pid);
+            uint self = GetCurrentThreadId();
+
+            if (frontThread != 0 && frontThread != self) AttachThreadInput(self, frontThread, true);
+            if (targetThread != 0 && targetThread != self) AttachThreadInput(self, targetThread, true);
+
+            BringWindowToTop(hWnd);
+            SetForegroundWindow(hWnd);
+
+            if (frontThread != 0 && frontThread != self) AttachThreadInput(self, frontThread, false);
+            if (targetThread != 0 && targetThread != self) AttachThreadInput(self, targetThread, false);
+
+            if (HasFocus(hWnd)) return true;
+            System.Threading.Thread.Sleep(50);
+        }
+
+        return HasFocus(hWnd);
+    }
 }
 "@
 
 $VK_RETURN = [uint16]0x0D
 $VK_TAB = [uint16]0x09
 
+$Target = if ($TargetHwnd -ne 0) { [IntPtr]$TargetHwnd } else { [IntPtr]::Zero }
+
 function Test-Stopped {
   if ($StopFile -and (Test-Path -LiteralPath $StopFile)) { return $true }
   return $false
+}
+
+# Once a target is chosen the keystrokes belong to it alone, so losing the
+# front window aborts the run instead of typing into whatever took over.
+function Assert-TargetFocus {
+  if ($Target -eq [IntPtr]::Zero) { return }
+  if (-not [AutoTyperNative]::HasFocus($Target)) {
+    throw 'Focus left the chosen window, so typing stopped.'
+  }
 }
 
 # Start-Sleep resolves to ~15 ms, so short waits spin instead.
@@ -175,7 +286,10 @@ function Invoke-Schedule([string]$path) {
   $lastReport = -1
 
   for ($i = 0; $i -lt $steps; $i++) {
-    if (($i -band 7) -eq 0 -and (Test-Stopped)) { return }
+    if (($i -band 7) -eq 0) {
+      if (Test-Stopped) { return }
+      if (-not $DryRun) { Assert-TargetFocus }
+    }
 
     if ($DryRun) {
       Emit ("#T {0} {1} {2}" -f $kind[$i], $value[$i], [int]$delayMs[$i])
@@ -231,6 +345,18 @@ try {
   }
   Emit '#C 0'
 
+  if ($Target -ne [IntPtr]::Zero) {
+    if (-not [AutoTyperNative]::Exists($Target)) {
+      throw 'The window you picked has closed. Refresh the list and pick it again.'
+    }
+    if (-not [AutoTyperNative]::Focus($Target)) {
+      throw 'Could not bring the chosen window to the front. It may be running with higher privileges than AutoTyper.'
+    }
+    # Let the window finish activating before the first keystroke arrives.
+    Start-Sleep -Milliseconds 120
+    if (Test-Stopped) { Emit '#D'; exit 0 }
+  }
+
   if ($ScheduleFile) {
     Invoke-Schedule $ScheduleFile
     Emit '#D'
@@ -244,7 +370,10 @@ try {
   for ($pass = 1; $pass -le $Repeat; $pass++) {
     $i = 0
     while ($i -lt $text.Length) {
-      if (($typed -band 7) -eq 0 -and (Test-Stopped)) { Emit '#D'; exit 0 }
+      if (($typed -band 7) -eq 0) {
+        if (Test-Stopped) { Emit '#D'; exit 0 }
+        Assert-TargetFocus
+      }
 
       $c = $text[$i]
       $step = 1

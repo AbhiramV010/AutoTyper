@@ -1,7 +1,7 @@
 # AutoTyper
 
 A desktop autotyper built with Electron. Paste text, pick a speed, and it replays that
-text as real keystrokes into whatever window you focus — editors, chat boxes, games,
+text as real keystrokes into a window you pick — editors, chat boxes, games,
 remote desktop sessions, forms that block pasting.
 
 ![platform](https://img.shields.io/badge/platform-Windows-blue) ![license](https://img.shields.io/badge/license-MIT-green)
@@ -18,21 +18,26 @@ appears; later starts are instant.
 
 ## How to type something
 
-1. Paste your text into the big box.
-2. Set the speed — **words per minute** (5 characters = 1 word, the standard
+1. Pick the **target window** from the list. **Refresh** re-reads the open windows;
+   the list also refreshes whenever you come back to AutoTyper.
+2. Paste your text into the big box.
+3. Set the speed — **words per minute** (5 characters = 1 word, the standard
    convention) or a raw **delay per keystroke** in milliseconds.
-3. Press **Start typing**, then click into the target window during the countdown.
-4. Press **F6** to stop early, or **F7** as an emergency stop. Both work while
+4. Press **Start typing**. AutoTyper counts down, brings your chosen window to the
+   front, and types into it. If the focus moves to another app mid-run, typing stops
+   rather than spilling keystrokes into it.
+5. Press **F6** to stop early, or **F7** as an emergency stop. Both work while
    AutoTyper is in the background, and `Esc` stops it while the app is focused.
 
 ## Options
 
 | Setting | What it does |
 | --- | --- |
+| Target window | The window the keystrokes go to. It is raised automatically when a run starts. |
 | Words per minute / Delay per keystroke | Typing speed, in whichever unit you prefer. |
 | Rhythm | Draws each interval from a model fitted to real typists instead of a fixed delay. See [Human typing](#human-typing). |
 | Typos | Mistakes per 100 characters. Every one is noticed and backspaced away, so the text still lands correct. |
-| Countdown before typing | Seconds to click into your target window before keys start flowing. |
+| Countdown before typing | Grace period before keys start flowing, so a run can still be called off. |
 | Extra pause per line | Added after each Enter, for editors that autocomplete or reindent. |
 | Repeat / Pause between repeats | Types the text several times over. |
 | Start / stop and emergency stop hotkeys | Click the box, press your combination. Registered globally. |

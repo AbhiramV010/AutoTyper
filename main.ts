@@ -34,9 +34,22 @@ interface Settings {
   alwaysOnTop: boolean;
   startHotkey: string;
   stopHotkey: string;
+  /** Last picked target, remembered by name because handles die with the window. */
+  targetTitle: string;
+  targetProcess: string;
 }
 
-type StartOptions = Partial<Settings>;
+interface StartOptions extends Partial<Settings> {
+  /** Handle of the window to type into, from the picker in the renderer. */
+  targetHwnd?: number;
+}
+
+interface WindowInfo {
+  hwnd: number;
+  pid: number;
+  process: string;
+  title: string;
+}
 
 interface RunFiles {
   text: string;
@@ -73,6 +86,8 @@ const DEFAULT_SETTINGS: Settings = {
   alwaysOnTop: false,
   startHotkey: 'F6',
   stopHotkey: 'F7',
+  targetTitle: '',
+  targetProcess: '',
 };
 
 let cachedModel: TypingModel | null = null;
@@ -119,10 +134,10 @@ function send(channel: string, payload?: unknown): void {
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload);
 }
 
-/** The engine script must sit on disk; powershell cannot read an asar. */
-function engineScriptPath(): string {
-  const source = path.join(__dirname, 'src', 'typer.ps1');
-  const target = path.join(os.tmpdir(), `autotyper-engine-${app.getVersion()}.ps1`);
+/** Scripts must sit on disk; powershell cannot read an asar. */
+function scriptPath(name: string): string {
+  const source = path.join(__dirname, 'src', `${name}.ps1`);
+  const target = path.join(os.tmpdir(), `autotyper-${name}-${app.getVersion()}.ps1`);
   const script = fs.readFileSync(source);
   let needsWrite = true;
   try {
@@ -132,6 +147,51 @@ function engineScriptPath(): string {
   }
   if (needsWrite) fs.writeFileSync(target, script);
   return target;
+}
+
+/** Top-level windows the user could type into, newest listing each time. */
+function listWindows(): Promise<WindowInfo[]> {
+  if (!IS_WINDOWS) return Promise.resolve([]);
+
+  return new Promise((resolve) => {
+    let child: ChildProcess;
+    try {
+      child = spawn(
+        'powershell.exe',
+        [
+          '-NoProfile',
+          '-NonInteractive',
+          '-ExecutionPolicy', 'Bypass',
+          '-File', scriptPath('list-windows'),
+          // AutoTyper cannot be its own target.
+          '-ExcludePid', String(process.pid),
+        ],
+        { windowsHide: true },
+      );
+    } catch (err) {
+      console.error('Could not list windows:', (err as Error).message);
+      resolve([]);
+      return;
+    }
+
+    let out = '';
+    child.stdout!.setEncoding('utf8');
+    child.stdout!.on('data', (chunk: string) => {
+      out += chunk;
+    });
+    child.on('error', (err) => {
+      console.error('Could not list windows:', err.message);
+      resolve([]);
+    });
+    child.on('close', () => {
+      try {
+        const parsed = JSON.parse(out) as WindowInfo[] | WindowInfo;
+        resolve(Array.isArray(parsed) ? parsed : [parsed]);
+      } catch {
+        resolve([]);
+      }
+    });
+  });
 }
 
 function cleanupRunFiles(): void {
@@ -219,6 +279,9 @@ function startTyping(options: StartOptions): { ok: boolean; error?: string } {
   const text = String(options.text ?? '');
   if (!text.length) return { ok: false, error: 'There is no text to type.' };
 
+  const targetHwnd = Math.trunc(Number(options.targetHwnd) || 0);
+  if (!targetHwnd) return { ok: false, error: 'Pick the window to type into first.' };
+
   const id = crypto.randomBytes(6).toString('hex');
   runFiles = {
     text: path.join(os.tmpdir(), `autotyper-text-${id}.txt`),
@@ -248,9 +311,10 @@ function startTyping(options: StartOptions): { ok: boolean; error?: string } {
     '-NoProfile',
     '-NonInteractive',
     '-ExecutionPolicy', 'Bypass',
-    '-File', engineScriptPath(),
+    '-File', scriptPath('typer'),
     '-TextFile', runFiles.text,
     '-StopFile', runFiles.stop,
+    '-TargetHwnd', String(targetHwnd),
     // Humanised mode: the schedule carries timings, so flat delays go unused.
     ...(humanize ? ['-ScheduleFile', runFiles.schedule] : []),
     '-DelayUs', String(Math.round(delayForOptions(options) * 1000)),
@@ -392,6 +456,7 @@ app.whenReady().then(() => {
     saveSettings(settings);
     return true;
   });
+  ipcMain.handle('windows:list', () => listWindows());
   ipcMain.handle('typing:start', (_event, options: StartOptions) => startTyping(options));
   ipcMain.handle('typing:stop', () => stopTyping());
   ipcMain.handle('typing:isRunning', () => Boolean(typer));

@@ -1,7 +1,7 @@
 {
   "name": "autotyper",
   "version": "1.0.0",
-  "description": "Desktop autotyper: types text into any focused window at a configurable speed, with global hotkeys.",
+  "description": "Desktop autotyper: types text into a window you pick at a configurable speed, with global hotkeys.",
   "main": "main.js",
   "scripts": {
     "build": "tsc -p tsconfig.json && tsc -p tsconfig.renderer.json",
@@ -41,7 +41,8 @@
       "!**/*.map"
     ],
     "extraResources": [
-      "src/typer.ps1"
+      "src/typer.ps1",
+      "src/list-windows.ps1"
     ],
     "icon": "build/icon.ico",
     "win": {
